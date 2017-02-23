@@ -11,7 +11,6 @@ using namespace std;
 
 #include "assert.h"
 #include "tools.h"
-#include "params.h"
 
 class BinaryIndex
 {
@@ -174,9 +173,13 @@ public:
 	}
 };
 
-int main()
+int main(int argc, char **argv)
 {
-	QuantumState state(params_number_of_cubits);
-	state.transform(params_qubit_transform_num);
-	state.print();
+	// Tools::cls();
+	// complexd water(2.3,3.2);
+	// Printer::assert(water.real() < 2, "Wrong");
+	// Printer::debug(true, "What's the value of water?", { {"Water value", water} });
+	// Printer::note(water.imag() > 3, "Show this message in yellow");
+	// Printer::refute(water, "True");
+
 }
