@@ -2,9 +2,14 @@
 #include <stdio.h>
 #include <iostream>
 
-typedef std::map<const char *, int> Hash;
+// typedef std::map<const char *, int> Hash;
 
-class Printer
+template<class T>
+using Hash = std::map<const char *, T>; // type-id is vector<T, Alloc<T>>
+// Vec<int> v; // Vec<int> is the same as vector<int, Alloc<int>>
+
+template<class T>
+class DebugTools
 {
 	static const int _DEBUG_ = 1;
 	static const char *assert_msg;
@@ -17,7 +22,7 @@ public:
 
 // #define _DEBUG_ 1
 
-static void assert(bool __expr, const char *__str__ = "", Hash params = Hash()) {
+static void assert(bool __expr, const char *__str__ = "", Hash<T> params = Hash<T>()) {
 	if(!__expr)	{
 		fprintf(stderr, "\x1b[1;31m%s: \x1b[0m", assert_msg);
 		fprintf(stderr, "\x1b[1;37m%s\x1b[0m\n", __str__);
@@ -28,8 +33,8 @@ static void assert(bool __expr, const char *__str__ = "", Hash params = Hash()) 
 	}
 }
 
-static void debug(bool __expr, const char *__str__ = "", Hash params = Hash()) {
-	if(__expr && _DEBUG_)	{
+static void debug(const char *__str__ = "", Hash<T> params = Hash<T>()) {
+	if(_DEBUG_)	{
 		fprintf(stderr, "\x1b[1;32m%s: \x1b[0m", debug_msg);
 		fprintf(stderr, "\x1b[1;37m%s\x1b[0m\n", __str__);
 		for(const auto &param:params)
@@ -38,7 +43,7 @@ static void debug(bool __expr, const char *__str__ = "", Hash params = Hash()) {
 	}
 }
 
-static void refute(bool __expr, const char *__str__ = "", Hash params = Hash()) {
+static void refute(bool __expr, const char *__str__ = "", Hash<T> params = Hash<T>()) {
 	if(__expr)	{
 		fprintf(stderr, "\x1b[1;31m%s: \x1b[0m", refute_msg);
 		fprintf(stderr, "\x1b[1;37m%s\x1b[0m\n", __str__);
@@ -49,7 +54,7 @@ static void refute(bool __expr, const char *__str__ = "", Hash params = Hash()) 
 	}
 }
 
-static void note(bool __expr, const char *__str__ = "",  Hash params = Hash()) {
+static void note(bool __expr, const char *__str__ = "",  Hash<T> params = Hash<T>()) {
 	if(__expr)	
 	{
 		fprintf(stderr, "\x1b[1;33m%s: \x1b[0m", note_msg);
@@ -61,8 +66,15 @@ static void note(bool __expr, const char *__str__ = "",  Hash params = Hash()) {
 }
 
 };
+	template<typename T>
+	const char *DebugTools<T>::assert_msg = "Assertion failed";
+	template<typename T>
+	const char *DebugTools<T>::refute_msg = "Runtime error";
+	template<typename T>
+	const char *DebugTools<T>::debug_msg = "Debug";
+	template<typename T>
+	const char *DebugTools<T>::note_msg = "Note";
 
-	const char *Printer::assert_msg = "Assertion failed";
-	const char *Printer::refute_msg = "Runtime error";
-	const char *Printer::debug_msg = "Debug";
-	const char *Printer::note_msg = "Note";
+	typedef DebugTools<int> Printer;
+	template<class T>
+	using Debugger = DebugTools<T>;

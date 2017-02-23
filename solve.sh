@@ -1,3 +1,5 @@
+set -o errexit # остановка после первой ошибки
+
 rm -rf build
 clear
 clear
@@ -15,7 +17,7 @@ Input
 mkdir build
 
 echo 'Building project'
-g++ -Wall -std=c++11 -I include -fopenmp -o build/solve src/main.cpp
-echo 'Done'
+g++ -Wall -std=c++11 -I include -fopenmp -g -o build/solve src/main.cpp
 export OMP_NUM_THREADS=$thread_num
-./build/solve
+result=$(./build/solve)
+printf "Done in $result\n"
