@@ -1,2 +1,4 @@
 include/params.h
 build/
+regatta.sh
+regatta.sh~

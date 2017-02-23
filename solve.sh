@@ -17,7 +17,7 @@ Input
 mkdir build
 
 echo 'Building project'
-g++ -Wall -std=c++11 -I include -fopenmp -g -o build/solve src/main.cpp
+g++ -Wall -std=c++0x -I include -fopenmp -g -o build/solve src/main.cpp
 export OMP_NUM_THREADS=$thread_num
 result=$(./build/solve)
 printf "Done in $result\n"
