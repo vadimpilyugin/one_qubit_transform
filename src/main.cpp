@@ -4,13 +4,14 @@
 #include <omp.h>
 
 typedef std::complex<double> complexd;
-typedef unsigned long long ulong;
-const MAX_BITS = sizeof(ulong) * 8;
+// typedef unsigned long long ulong;
+const size_t MAX_BITS = sizeof(ulong) * 8;
 
 using namespace std;
 
 #include "assert.h"
 #include "tools.h"
+#include "params.h"
 
 class BinaryIndex
 {
@@ -19,8 +20,8 @@ class BinaryIndex
 public:
 	BinaryIndex(const size_t _n): n(_n)
 	{
-		assert(n != 0, "Empty bitset!");
-		assert(n <= MAX_BITS, "Number of bits is too big", {{"Number of bits", n}, {"Max", MAX_BITS}});
+		Printer::assert(n != 0, "Empty bitset!");
+		Printer::assert(n <= MAX_BITS, "Number of bits is too big", {{"Number of bits", n}, {"Max", MAX_BITS}});
 		try
 		{
 			index = new char[n];
@@ -34,7 +35,7 @@ public:
 	}
 	~BinaryIndex()
 	{
-		assert(index != nullptr, "Already destructed!");
+		Printer::assert(index != nullptr, "Already destructed!");
 		delete index [];
 	}
 	void to_index(const ulong _k)
@@ -46,11 +47,11 @@ public:
 			index[i] = k % 2;
 			k /= 2;
 		}
-		assert(k == 0, "The value is too big for this index!", {{"Value", k}, {"Index size(bits)", n}});
+		Printer::assert(k == 0, "The value is too big for this index!", {{"Value", k}, {"Index size(bits)", n}});
 	}
 	ulong to_ulong_with_insert(const size_t bit_pos, const char bit_value) const
 	{
-		assert(bit_pos <= n && bit_pos >= 1, "Bit position is outside of possible range!", {{"Bit number", bit_pos}, {"Max bits", n}});
+		Printer::assert(bit_pos <= n && bit_pos >= 1, "Bit position is outside of possible range!", {{"Bit number", bit_pos}, {"Max bits", n}});
 		size_t k = bit_pos - 1;
 		ulong sum = 0;
 		for(size_t i = 0; i < k; i++)
@@ -79,7 +80,7 @@ public:
 	}
 	BinaryIndex &flip(const size_t k)
 	{
-		assert(k >= 1 && k <= n, "Trying to flip a bit outside of possible range!", {{"Bit number", k}, {"Max bits", n}});
+		Printer::assert(k >= 1 && k <= n, "Trying to flip a bit outside of possible range!", {{"Bit number", k}, {"Max bits", n}});
 		size_t ind = k-1;
 		if(index[ind] == 0)
 			index[ind] = 1;
@@ -89,13 +90,13 @@ public:
 	}
 	BinaryIndex &add (const char c)
 	{
-		note(c != 0 && c != 1, "Adding more than one to index", {{"Value of c", c}});
+		Printer::note(c != 0 && c != 1, "Adding more than one to index", {{"Value of c", c}});
 		to_index(to_ulong() + c);
 		return (*this);
 	}
 	char test(const size_t k) const
 	{
-		assert(k >= 1 && k <= n, "Trying to access a bit outside of possible range!", {{"Bit number", k}, {"Max bits", n}});
+		Printer::assert(k >= 1 && k <= n, "Trying to access a bit outside of possible range!", {{"Bit number", k}, {"Max bits", n}});
 		return index[k];
 	}
 };
@@ -108,14 +109,14 @@ class QuantumState
 public:
 	QuantumState(const size_t _qubits_n): qubits_n(_qubits_n)
 	{
-		assert(qubits_n >= 1 && qubits_n <= MAX_BITS, "Number of qubits is too big", {{"Number of qubits", qubits_n}, {"Max", sizeof(ulong)}});
+		Printer::assert(qubits_n >= 1 && qubits_n <= MAX_BITS, "Number of qubits is too big", {{"Number of qubits", qubits_n}, {"Max", sizeof(ulong)}});
 		ulong maxsize = 0;
 		{
 			BinaryIndex ind(qubits_n);
 			ulong size = ind.flip(1).to_ulong();
 			maxsize = vector::max_size;
 		}
-		assert(size <= maxsize, "Vector is too long", {{"Vector size", size}, {"Max size", maxsize}});
+		Printer::assert(size <= maxsize, "Vector is too long", {{"Vector size", size}, {"Max size", maxsize}});
 		try
 		{
 			state = vector<complexd> (size);
@@ -173,13 +174,9 @@ public:
 	}
 };
 
-int main(int argc, char **argv)
+int main()
 {
-	// Tools::cls();
-	// complexd water(2.3,3.2);
-	// Printer::assert(water.real() < 2, "Wrong");
-	// Printer::debug(true, "What's the value of water?", { {"Water value", water} });
-	// Printer::note(water.imag() > 3, "Show this message in yellow");
-	// Printer::refute(water, "True");
-
+	QuantumState state(params_number_of_cubits);
+	state.transform(params_qubit_transform_num);
+	state.print();
 }

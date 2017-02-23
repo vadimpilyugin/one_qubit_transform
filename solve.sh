@@ -1,4 +1,6 @@
 rm -rf build
+clear
+clear
 
 # Параметры программы
 source ./config.cfg
@@ -13,7 +15,7 @@ Input
 mkdir build
 
 echo 'Building project'
-g++ -Wall -std=c++11 -I include -fopenmp -o build/solve main.cpp
+g++ -Wall -std=c++11 -I include -fopenmp -o build/solve src/main.cpp
 echo 'Done'
 export OMP_NUM_THREADS=$thread_num
 ./build/solve
