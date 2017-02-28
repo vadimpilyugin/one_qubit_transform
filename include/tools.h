@@ -23,7 +23,7 @@ public:
 	{
 		if(!is_srand_initialized)
 			Tools::srand();
-		return std::rand()/(RAND_MAX+0.0);
+		return std::rand()/(RAND_MAX+0.0)*100-50;
 	}
 	static double rand_int_10()
 	{

@@ -81,9 +81,36 @@ public:
 		//
 		// Nested loops, which is not good
 		//
-		// for(int i = 0; i < const_2_k_1; i++)
+		// #pragma omp parallel for
+		for(int i = 0; i < const_2_k_1; i++)
+		{
+			group_start = const_2_n_k_1*i;
+			for(int j = 0; j < const_2_n_k; j++)
+			{
+				ulong index1 = group_start + j;
+				ulong index2 = group_start + j + add_constant;
+				complexd value1 = state[index1];
+				complexd value2 = state[index2];
+				complexd sum = (value1 + value2)/sqrt(2);
+				complexd diff = (value1 - value2)/sqrt(2);
+				state[index1] = sum;
+				state[index2] = diff;
+			}
+		}
+		//
+		//	Simple workaround for nested loops
+		//
+		// #pragma omp parallel for
+		// for (int xy = 0; xy < x_max*y_max; ++xy) {
+		//     int x = xy / y_max;
+		//     int y = xy % y_max;
+		//     //parallelize this code here
+		// }
+		// #pragma omp parallel for
+		// for(ulong ij = 0; ij < (const_2_k_1)*(const_2_n_k); ij++)
 		// {
-		// 	for(int j = 0; j < const_2_n_k; j++)
+		// 	ulong i = ij / (const_2_n_k);
+		// 	ulong j = ij % (const_2_k_1);
 		// 	{
 		// 		group_start = const_2_n_k_1*i;
 		// 		ulong index1 = group_start + j;
@@ -96,32 +123,6 @@ public:
 		// 		state[index2] = diff;
 		// 	}
 		// }
-		//
-		//	Simple workaround for nested loops
-		//
-		// #pragma omp parallel for
-		// for (int xy = 0; xy < x_max*y_max; ++xy) {
-		//     int x = xy / y_max;
-		//     int y = xy % y_max;
-		//     //parallelize this code here
-		// }
-		#pragma omp parallel for
-		for(ulong ij = 0; ij < (const_2_k_1)*(const_2_n_k); ij++)
-		{
-			ulong i = ij / (const_2_n_k);
-			ulong j = ij % (const_2_k_1);
-			{
-				group_start = const_2_n_k_1*i;
-				ulong index1 = group_start + j;
-				ulong index2 = group_start + j + add_constant;
-				complexd value1 = state[index1];
-				complexd value2 = state[index2];
-				complexd sum = (value1 + value2)/sqrt(2);
-				complexd diff = (value1 - value2)/sqrt(2);
-				state[index1] = sum;
-				state[index2] = diff;
-			}
-		}
 	}
 	void print() const
 	{
@@ -136,7 +137,7 @@ public:
 		Printer::note(true, "Checking if answer is correct. Use this only for debugging!");
 		double abs1 = 0, max = 0;
 		double abs2 = 0, min = 0;
-		double eps = 2;
+		double eps = 0.5;
 		for(ulong i = 0; i < size; i++)
 		{
 			abs1 = abs(state[i]);
@@ -145,7 +146,8 @@ public:
 			min = abs1 > abs2 ? abs2 : abs1;
 			if(max-min > eps)
 			{
-				Printer::note(true, "Differ by", {{"Value",max-min}});
+				ulong a = max-min;
+				Printer::note(true, "Differ by more than", {{"Value",a}});
 				return false;
 			}
 		}
@@ -154,20 +156,27 @@ public:
 	}
 };
 
-int main()
+double launch(size_t qubits_n, size_t qubit_num)
 {
 	Tools::timer_start();
 	QuantumState state(params_number_of_cubits);
 	QuantumState state2 = state;
-	// state.print();
-	state.transform(params_qubit_transform_num);
+	state.transform(qubit_num);
 	double result = Tools::timer_stop();
-	cout << result;
-	state.transform(params_qubit_transform_num);
+	cout << qubits_n << ":"<<qubit_num << ", " << result << endl;
+	state.transform(qubit_num);
 	state.is_equal(state2);
-	// for(size_t i = 1; i <= params_number_of_cubits; i++)
-	// {
-	// 	state.transform(i);
-		//state.print();
-	// }
+	return result;
+}
+
+int main()
+{
+	// Qubits number are 20,24,28 and 32
+	// For 32, run three times with qubit_num = 1, 11 and 32 
+	launch(20, params_qubit_transform_num);
+	launch(24, params_qubit_transform_num);
+	launch(28, params_qubit_transform_num);
+	launch(32, 1);
+	launch(32, 11);
+	launch(32, 32);
 }
