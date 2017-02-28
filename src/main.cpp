@@ -7,6 +7,7 @@
 typedef std::complex<double> complexd;
 // typedef double complexd;
 const size_t MAX_BITS = sizeof(ulong) * 8;
+const int DEBUG = 0;
 
 using namespace std;
 
@@ -52,14 +53,7 @@ public:
 			ulong group_start = rank*step;
 			Tools::srand(rank);
 			for(ulong i = 0; i < step; i++)
-			{
 				state[group_start + i] = complexd(Tools::rand(),Tools::rand());
-				// Printer::debug("Generated number", {{"Real", real},{"Imaginary", imag}});
-				// Debugger<complexd>::debug("Generated number", {{"Complex number", state[i]}});
-				// =============== //
-				// int num = Tools::rand_int_10();
-				// state[i] = complexd(num);
-			}
 		}
 	}
 	QuantumState(QuantumState &other)
@@ -68,6 +62,14 @@ public:
 		qubits_n = other.qubits_n;
 		state = other.state;
 		size = other.size;
+	}
+	QuantumState &operator=(QuantumState &other)
+	{
+		Printer::note(1, "Called assignment operator. Use only for debugging!");
+		qubits_n = other.qubits_n;
+		state = other.state;
+		size = other.size;
+		return (*this);
 	}
 	void transform(const size_t k)
 	{
@@ -81,10 +83,10 @@ public:
 		//
 		// Nested loops, which is not good
 		//
-		// #pragma omp parallel for
 		for(int i = 0; i < const_2_k_1; i++)
 		{
 			group_start = const_2_n_k_1*i;
+			#pragma omp parallel for
 			for(int j = 0; j < const_2_n_k; j++)
 			{
 				ulong index1 = group_start + j;
@@ -138,6 +140,8 @@ public:
 		double abs1 = 0, max = 0;
 		double abs2 = 0, min = 0;
 		double eps = 0.5;
+		bool flag = true;
+		// #pragma omp parallel for
 		for(ulong i = 0; i < size; i++)
 		{
 			abs1 = abs(state[i]);
@@ -148,24 +152,28 @@ public:
 			{
 				ulong a = max-min;
 				Printer::note(true, "Differ by more than", {{"Value",a}});
-				return false;
+				flag = false;
 			}
 		}
-		Printer::note(true, "Answer is correct");
-		return true;
+		Printer::note(flag, "Answer is correct");
+		return flag;
 	}
 };
 
 double launch(size_t qubits_n, size_t qubit_num)
 {
 	Tools::timer_start();
-	QuantumState state(params_number_of_cubits);
-	QuantumState state2 = state;
+	QuantumState state(qubits_n);
+	QuantumState state2(qubits_n);
+	if(DEBUG)
+		state2 = state;
 	state.transform(qubit_num);
 	double result = Tools::timer_stop();
 	cout << qubits_n << ":"<<qubit_num << ", " << result << endl;
-	state.transform(qubit_num);
-	state.is_equal(state2);
+	if(DEBUG){
+		state.transform(qubit_num);
+		state.is_equal(state2);
+	}
 	return result;
 }
 
