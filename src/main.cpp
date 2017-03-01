@@ -8,7 +8,7 @@
 typedef std::complex<double> complexd;
 typedef unsigned long int ulong;
 const size_t MAX_BITS = sizeof(ulong) * 8;
-#define DEBUG 0
+#define DEBUG 1
 
 using namespace std;
 
@@ -188,7 +188,7 @@ double launch(size_t qubits_n, size_t qubit_num)
 
 double median(size_t qubits_n, size_t qubit_num=0)
 {
-	int cnt = 1;
+	int cnt = 5;
 	double sum = 0;
 	for(int i = 0; i < cnt; i++)
 		sum += launch(qubits_n, qubit_num?qubit_num:params_qubit_transform_num);
@@ -208,5 +208,5 @@ int main()
 //  median(26,1);
 //  median(26,11);
 //  median(26,26);
-median(26,1);
+median(20,10);
 }
