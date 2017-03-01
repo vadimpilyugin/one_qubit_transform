@@ -8,7 +8,7 @@
 typedef std::complex<double> complexd;
 typedef unsigned long int ulong;
 const size_t MAX_BITS = sizeof(ulong) * 8;
-#define DEBUG 1
+#define DEBUG 0
 
 using namespace std;
 
@@ -36,7 +36,7 @@ public:
 	QuantumState(const size_t _qubits_n): qubits_n(_qubits_n)
 	{
 		// Printer::assert(qubits_n >= 1 && qubits_n <= MAX_BITS, "Number of qubits is too big", {{"Number of qubits", qubits_n}, {"Max", sizeof(ulong)}});
-		ulong maxsize = state.max_size();
+		// ulong maxsize = state.max_size();
 		size = deg2(qubits_n);
 		// Printer::assert(size <= maxsize, "Vector is too long", {{"Vector size", size}, {"Max size", maxsize}});
 		try
@@ -86,10 +86,11 @@ public:
 		//
 		// Nested loops, which is not good
 		//
-		for(int i = 0; i < const_2_k_1; i++)
+
+		#pragma omp parallel for collapse(2)
+		for(ulong i = 0; i < const_2_k_1; i++)
 		{
-			#pragma omp parallel for
-			for(int j = 0; j < const_2_n_k; j++)
+			for(ulong j = 0; j < const_2_n_k; j++)
 			{
 				ulong group_start = const_2_n_k_1*i;
 				ulong index1 = group_start + j;
@@ -151,8 +152,8 @@ public:
 			double min = abs1 > abs2 ? abs2 : abs1;
 			if(max-min > eps)
 			{
-				ulong a = max-min;
 				#if DEBUG
+				ulong a = max-min;
 				Printer::note(true, "Differ by more than", {{"Value",a}});
 				#endif
 				flag = false;
@@ -196,8 +197,8 @@ double median(size_t qubits_n, size_t qubit_num=0)
 int main()
 {
 	// Qubits number are 20,24,25,26
-	median(20);
-//	median(24);
+	// median(20);
+	median(24);
 //	median(25);
 //	median(26);
 //  median(26,1);

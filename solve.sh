@@ -17,7 +17,7 @@ mkdir build
 
 echo 'Building project'
 g++ -Wall -std=c++0x -I include -fopenmp -g -o build/solve src/main.cpp
-export OMP_NUM_THREADS=8
+export OMP_NUM_THREADS=2
 printf "OMP_NUM_THREADS = $OMP_NUM_THREADS\n"
 echo '============================'
 ./build/solve
