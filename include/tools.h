@@ -6,6 +6,7 @@ class Tools
 {
 	static int is_srand_initialized;
 	static struct timeval start, end;
+	static double time_delta;
 public:
 	static void cls()
 	{
@@ -42,9 +43,15 @@ public:
 		gettimeofday(&end, NULL);
 
 		double delta = ((end.tv_sec  - start.tv_sec) * 1000000u + end.tv_usec - start.tv_usec) / 1e6;
+		time_delta = delta;
 		return delta;
+	}
+	static double get_timer()
+	{
+		return time_delta;
 	}
 };
 
 int Tools::is_srand_initialized = 0;
 struct timeval Tools::start, Tools::end;
+double Tools::time_delta = 0;

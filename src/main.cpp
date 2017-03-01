@@ -86,10 +86,12 @@ public:
 		//
 		// Nested loops, which is not good
 		//
-
-		#pragma omp parallel for collapse(2)
+		Tools::timer_start();
+		//#pragma omp parallel for collapse(2)
+		#pragma omp parallel for
 		for(ulong i = 0; i < const_2_k_1; i++)
 		{
+			#pragma omp parallel for
 			for(ulong j = 0; j < const_2_n_k; j++)
 			{
 				ulong group_start = const_2_n_k_1*i;
@@ -112,23 +114,24 @@ public:
 		//     int y = xy % y_max;
 		//     //parallelize this code here
 		// }
-		// #pragma omp parallel for
-		// for(ulong ij = 0; ij < (const_2_k_1)*(const_2_n_k); ij++)
-		// {
-		// 	ulong i = ij / (const_2_n_k);
-		// 	ulong j = ij % (const_2_k_1);
-		// 	{
-		// 		group_start = const_2_n_k_1*i;
-		// 		ulong index1 = group_start + j;
-		// 		ulong index2 = group_start + j + add_constant;
-		// 		complexd value1 = state[index1];
-		// 		complexd value2 = state[index2];
-		// 		complexd sum = (value1 + value2)/sqrt(2);
-		// 		complexd diff = (value1 - value2)/sqrt(2);
-		// 		state[index1] = sum;
-		// 		state[index2] = diff;
-		// 	}
-		// }
+//		 #pragma omp parallel for
+//		 for(ulong ij = 0; ij < (const_2_k_1)*(const_2_n_k); ij++)
+//		 {
+//		 	ulong i = ij / (const_2_n_k);
+//		 	ulong j = ij % (const_2_k_1);
+//		 	{
+//		 		ulong group_start = const_2_n_k_1*i;
+//		 		ulong index1 = group_start + j;
+//		 		ulong index2 = group_start + j + add_constant;
+//		 		complexd value1 = state[index1];
+//		 		complexd value2 = state[index2];
+//		 		complexd sum = (value1 + value2)/sqrt(2);
+//		 		complexd diff = (value1 - value2)/sqrt(2);
+//		 		state[index1] = sum;
+//		 		state[index2] = diff;
+//		 	}
+//		 }
+		Tools::timer_stop();
 	}
 	void print() const
 	{
@@ -143,7 +146,7 @@ public:
 		// Printer::note(true, "Checking if answer is correct. Use this only for debugging!");
 		const double eps = 0.5;
 		bool flag = true;
-		// #pragma omp parallel for
+		#pragma omp parallel for
 		for(ulong i = 0; i < size; i++)
 		{
 			double abs1 = abs(state[i]);
@@ -168,14 +171,14 @@ public:
 
 double launch(size_t qubits_n, size_t qubit_num)
 {
-	Tools::timer_start();
+//	Tools::timer_start();
 	QuantumState state(qubits_n);
-	QuantumState state2(qubits_n);
 	#if DEBUG
+		QuantumState state2(qubits_n);
 		state2 = state;
 	#endif
 	state.transform(qubit_num);
-	double result = Tools::timer_stop();
+	double result = Tools::get_timer();
 	#if DEBUG
 		state.transform(qubit_num);
 		state.is_equal(state2);
@@ -185,11 +188,12 @@ double launch(size_t qubits_n, size_t qubit_num)
 
 double median(size_t qubits_n, size_t qubit_num=0)
 {
+	int cnt = 1;
 	double sum = 0;
-	for(int i = 0; i < 5; i++)
+	for(int i = 0; i < cnt; i++)
 		sum += launch(qubits_n, qubit_num?qubit_num:params_qubit_transform_num);
-	sum /= 5;
-	cout << qubits_n << ":"<<params_qubit_transform_num << ":" << sum << endl;
+	sum /= cnt;
+	cout << qubits_n << ":"<<(qubit_num?qubit_num:params_qubit_transform_num) << ":" << sum << endl;
 	return sum;
 }
 
@@ -197,12 +201,12 @@ double median(size_t qubits_n, size_t qubit_num=0)
 int main()
 {
 	// Qubits number are 20,24,25,26
-	// median(20);
-	median(24);
+//	median(20);
+//	median(24);
 //	median(25);
 //	median(26);
 //  median(26,1);
 //  median(26,11);
 //  median(26,26);
-
+median(26,1);
 }
