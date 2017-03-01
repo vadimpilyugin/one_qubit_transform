@@ -208,5 +208,5 @@ int main()
 //  median(26,1);
 //  median(26,11);
 //  median(26,26);
-median(20,10);
+median(params_qubit_num, params_qubit_transform_num);
 }
