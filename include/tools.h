@@ -16,7 +16,7 @@ public:
 	{
 		if(!is_srand_initialized)
 		{
-			std::srand(time(NULL) + salt);
+			std::srand(std::time(NULL) + salt);
 			is_srand_initialized = 1;
 		}
 	}
@@ -25,6 +25,14 @@ public:
 		if(!is_srand_initialized)
 			Tools::srand();
 		return std::rand()/(RAND_MAX+0.0)*100-50;
+	}
+	static time_t time()
+	{
+		return std::time(NULL);
+	}
+	static double rand_r(unsigned int *seedp)
+	{
+		return ::rand_r(seedp);
 	}
 	static double rand_int_10()
 	{

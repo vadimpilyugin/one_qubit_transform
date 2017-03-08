@@ -55,9 +55,9 @@ public:
 			size_t proc_num = omp_get_num_threads();
 			ulong step = size / proc_num;
 			ulong group_start = rank*step;
-			Tools::srand(rank);
+			unsigned int seed = Tools::time()+rank;
 			for(ulong i = 0; i < step; i++)
-				state[group_start + i] = complexd(Tools::rand(),Tools::rand());
+				state[group_start + i] = complexd(Tools::rand_r(&seed),Tools::rand_r(&seed));
 		}
 	}
 	QuantumState(QuantumState &other)
@@ -77,26 +77,22 @@ public:
 	}
 	void transform(const size_t k)
 	{
-		const ulong const_2_n = deg2(qubits_n);
-		const ulong const_2_k = deg2(k);
-		const ulong const_2_k_1 = deg2(k)/2;
-		const ulong const_2_n_k = const_2_n/const_2_k;
-		const ulong const_2_n_k_1 = const_2_n_k*2;
-		const ulong add_constant = const_2_n/const_2_k;
-		//
-		// Nested loops, which is not good
-		//
-		Tools::timer_start();
-		//#pragma omp parallel for collapse(2)
-		#pragma omp parallel for
-		for(ulong i = 0; i < const_2_k_1; i++)
+		if (k > qubits_n)
 		{
-			#pragma omp parallel for
-			for(ulong j = 0; j < const_2_n_k; j++)
+			fprintf(stderr, "%s\n", "Qubit number is out of possible range");
+			exit(1);
+		}
+		const ulong deg_2_n = deg2(qubits_n);
+		const ulong mask = deg2(qubits_n-k);
+		Tools::timer_start();
+		#pragma omp parallel for
+		for(ulong i = 0; i < deg_2_n; i++)
+			if((i & mask) != mask)
 			{
-				ulong group_start = const_2_n_k_1*i;
-				ulong index1 = group_start + j;
-				ulong index2 = group_start + j + add_constant;
+				ulong index1 = i;
+				ulong index2 = i|mask;
+
+				// printf("%d and %d\n",index1,index2);
 				complexd value1 = state[index1];
 				complexd value2 = state[index2];
 				complexd sum = (value1 + value2)/sqrt(2);
@@ -104,33 +100,6 @@ public:
 				state[index1] = sum;
 				state[index2] = diff;
 			}
-		}
-		//
-		//	Simple workaround for nested loops
-		//
-		// #pragma omp parallel for
-		// for (int xy = 0; xy < x_max*y_max; ++xy) {
-		//     int x = xy / y_max;
-		//     int y = xy % y_max;
-		//     //parallelize this code here
-		// }
-//		 #pragma omp parallel for
-//		 for(ulong ij = 0; ij < (const_2_k_1)*(const_2_n_k); ij++)
-//		 {
-//		 	ulong i = ij / (const_2_n_k);
-//		 	ulong j = ij % (const_2_k_1);
-//		 	{
-//		 		ulong group_start = const_2_n_k_1*i;
-//		 		ulong index1 = group_start + j;
-//		 		ulong index2 = group_start + j + add_constant;
-//		 		complexd value1 = state[index1];
-//		 		complexd value2 = state[index2];
-//		 		complexd sum = (value1 + value2)/sqrt(2);
-//		 		complexd diff = (value1 - value2)/sqrt(2);
-//		 		state[index1] = sum;
-//		 		state[index2] = diff;
-//		 	}
-//		 }
 		Tools::timer_stop();
 	}
 	void print() const
@@ -181,6 +150,8 @@ double launch(size_t qubits_n, size_t qubit_num)
 	double result = Tools::get_timer();
 	#if DEBUG
 		state.transform(qubit_num);
+		// state.print();
+		// state2.print();
 		state.is_equal(state2);
 	#endif
 	return result;
@@ -208,5 +179,5 @@ int main()
 //  median(26,1);
 //  median(26,11);
 //  median(26,26);
-median(20,10);
+median(26,2);
 }
