@@ -1,14 +1,21 @@
 #include <complex>
 #include <cstring>
-#include <cmath>
-#include <vector>
-#include <omp.h>
-#include <iostream>
+#include <math.h>
+#include <cstdlib>
+#include <ctime>
+#include <sys/time.h>
+#include <errno.h>
+#include "mpi.h"
 
 typedef std::complex<double> complexd;
 typedef unsigned long int ulong;
-const size_t MAX_BITS = sizeof(ulong) * 8;
 #define DEBUG 1
+#define SUCCESS 0
+#define NO_MEMORY -1
+
+#define MASTER 0
+
+#define NO_TAG 0
 
 using namespace std;
 
@@ -16,168 +23,188 @@ using namespace std;
 #include "assert.h"
 #endif
 
-#include "tools.h"
-#include "params.h"
+int myrank, proc_num, i_am_the_master;
+double total_time = 0, tmp_time;
 
-static ulong deg2(size_t k)
+void go()
 {
-	ulong res = 1;
-	for(size_t i = 0; i < k; i++)
-		res *= 2;
-	return res;
+	tmp_time = MPI_Wtime();
+}
+void stop()
+{
+	tmp_time = MPI_Wtime() - tmp_time;
+	total_time += tmp_time;
 }
 
-class QuantumState
+int generate_state(complexd **_state, const size_t number_of_qubits, const int seed)
 {
-	size_t qubits_n;
-	vector<complexd> state;
-	ulong size;
-public:
-	QuantumState(const size_t _qubits_n): qubits_n(_qubits_n)
+	// Vector with a quantum state of our qubits
+	complexd *state = NULL;
+	// Size of the vector, which is 2 to the power of number of qubits
+	ulong size = 1 << number_of_qubits;
+	// Allocating memory for vector in root process
+	if(i_am_the_master)
 	{
-		// Printer::assert(qubits_n >= 1 && qubits_n <= MAX_BITS, "Number of qubits is too big", {{"Number of qubits", qubits_n}, {"Max", sizeof(ulong)}});
-		// ulong maxsize = state.max_size();
-		size = deg2(qubits_n);
-		// Printer::assert(size <= maxsize, "Vector is too long", {{"Vector size", size}, {"Max size", maxsize}});
-		try
+		state = (complexd *)malloc(size*sizeof(complexd));
+		if(state == NULL)
 		{
-			state = vector<complexd> (size);
-		}
-		catch (bad_alloc& ba)
-		{
-			cerr << "New QuantumState with "<<qubits_n<<" qubits could not be created: bad_alloc caught: " << ba.what() << '\n';
-			exit(20);
-		}
-		// OMP generate values
-		#pragma omp parallel
-		{
-			size_t rank = omp_get_thread_num();
-			size_t proc_num = omp_get_num_threads();
-			ulong step = size / proc_num;
-			ulong group_start = rank*step;
-			unsigned int seed = Tools::time()+rank;
-			for(ulong i = 0; i < step; i++)
-				state[group_start + i] = complexd(Tools::rand_r(&seed),Tools::rand_r(&seed));
+			fprintf(stderr, "New QuantumState with %ld qubits cannot be created: %s\n", number_of_qubits, strerror(errno));
+			*_state = NULL;
+			return NO_MEMORY;
 		}
 	}
-	QuantumState(QuantumState &other)
-	{
-		// Printer::note(1, "Called copy constructor. Use only for debugging!");
-		qubits_n = other.qubits_n;
-		state = other.state;
-		size = other.size;
-	}
-	QuantumState &operator=(QuantumState &other)
-	{
-		// Printer::note(1, "Called assignment operator. Use only for debugging!");
-		qubits_n = other.qubits_n;
-		state = other.state;
-		size = other.size;
-		return (*this);
-	}
-	void transform(const size_t k)
-	{
-		if (k > qubits_n)
-		{
-			fprintf(stderr, "%s\n", "Qubit number is out of possible range");
-			exit(1);
-		}
-		const ulong deg_2_n = deg2(qubits_n);
-		const ulong mask = deg2(qubits_n-k);
-		Tools::timer_start();
-		#pragma omp parallel for
-		for(ulong i = 0; i < deg_2_n; i++)
-			if((i & mask) != mask)
-			{
-				ulong index1 = i;
-				ulong index2 = i|mask;
+	// Parallel random vector generation
+	// Each process generates its own portion of a vector and then sends it to root process
 
-				// printf("%d and %d\n",index1,index2);
-				complexd value1 = state[index1];
-				complexd value2 = state[index2];
-				complexd sum = (value1 + value2)/sqrt(2);
-				complexd diff = (value1 - value2)/sqrt(2);
-				state[index1] = sum;
-				state[index2] = diff;
-			}
-		Tools::timer_stop();
-	}
-	void print() const
-	{
-		ulong index = 0;
-		cout << "Vector of size "<<size << endl;
-		cout << "----------------" << endl;
-		for(ulong i = 0; i < size; i++)
-			cout << "v["<<index++<<"]:\t" << state[i] << endl;
-	}
-	bool is_equal(QuantumState &state2)
-	{
-		// Printer::note(true, "Checking if answer is correct. Use this only for debugging!");
-		const double eps = 0.5;
-		bool flag = true;
-		#pragma omp parallel for
-		for(ulong i = 0; i < size; i++)
-		{
-			double abs1 = abs(state[i]);
-			double abs2 = abs(state2.state[i]);
-			double max = abs1 > abs2 ? abs1 : abs2;
-			double min = abs1 > abs2 ? abs2 : abs1;
-			if(max-min > eps)
-			{
-				#if DEBUG
-				ulong a = max-min;
-				Printer::note(true, "Differ by more than", {{"Value",a}});
-				#endif
-				flag = false;
-			}
-		}
-		#if DEBUG
-		Printer::note(flag, "Answer is correct");
-		#endif
-		return flag;
-	}
-};
+	complexd *portion = NULL;
+	ulong portion_size = size / proc_num;
 
-double launch(size_t qubits_n, size_t qubit_num)
+	portion = (complexd *)malloc(portion_size * sizeof(complexd));
+	if(portion == NULL)
+	{
+		if(i_am_the_master)
+		{
+			free(state);
+		}
+		*_state = NULL;
+		return NO_MEMORY;
+	}
+
+	// const unsigned int ONE_YEAR = 31556926;
+	// One year interval so processes won't produce the same random sequence
+	srand(seed + myrank);
+	size_t i;
+	for(i = 0; i < portion_size; i++)
+		portion[i] = complexd(rand() * 100 - 50, rand() * 100 - 50);
+
+	MPI_Gather(portion, portion_size, MPI_DOUBLE_COMPLEX, state, portion_size, MPI_DOUBLE_COMPLEX, MASTER, MPI_COMM_WORLD);
+	*_state = state;
+	return SUCCESS;
+}
+
+int transform(complexd *state, const size_t number_of_qubits, const size_t qubit_num)
 {
-//	Tools::timer_start();
-	QuantumState state(qubits_n);
+	// Root process sends portions of state vector
+	complexd *portion = NULL;
+	ulong size = 1 << number_of_qubits;
+	ulong portion_size = size / proc_num;
+
+	portion = (complexd *)malloc(portion_size * sizeof(complexd));
+	if(portion == NULL)
+		return NO_MEMORY;
+
+	// Start the timer
+	if(i_am_the_master)
+		go();
+
+	MPI_Scatter(state,portion_size,MPI_DOUBLE_COMPLEX,portion,portion_size,MPI_DOUBLE_COMPLEX,MASTER,MPI_COMM_WORLD);
+
+	// Each process has its own part of state vector
+	ulong parts_num = 1 << qubit_num;
+	ulong processes_per_part = proc_num / parts_num;
+
+	if(processes_per_part >= 1)
+	{
+		int i_am_white = (myrank & processes_per_part) == processes_per_part;
+		// We need an extra Sendrecv operation
+		complexd *sendrecv_buffer = NULL;
+		// half of the data will be sent
+		if(i_am_white)
+			sendrecv_buffer = portion;
+		else
+			sendrecv_buffer = portion + portion_size / 2;
+		MPI_Status temp;
+		MPI_Sendrecv_replace(sendrecv_buffer, portion_size/2, MPI_DOUBLE_COMPLEX, myrank^processes_per_part, NO_TAG, myrank, NO_TAG, MPI_COMM_WORLD, &temp);
+	}
+	// const ulong start_pos = myrank * portion_size;
+	const ulong mask = 1 << (number_of_qubits - qubit_num + 1);
+	const double root2 = sqrt(2);
+	ulong i;
+	for(i = 0; i < portion_size; i++)
+		if((i & mask) != mask)
+		{
+			ulong index1;
+			ulong index2;
+			
+			index1 = i;
+			if(processes_per_part >= 1)
+				index2 = i + portion_size / 2;
+			else
+				index2 = i|mask;
+
+			// printf("%d and %d\n",index1,index2);
+			complexd value1 = portion[index1];
+			complexd value2 = portion[index2];
+			complexd sum = (value1 + value2)/root2;
+			complexd diff = (value1 - value2)/root2;
+			portion[index1] = sum;
+			portion[index2] = diff;
+		}
+	if(processes_per_part >= 1)
+	{
+		int i_am_white = (myrank & processes_per_part) == processes_per_part;
+		// We need an extra Sendrecv operation
+		complexd *sendrecv_buffer = NULL;
+		// half of the data will be sent
+		if(i_am_white)
+			sendrecv_buffer = portion;
+		else
+			sendrecv_buffer = portion + portion_size / 2;
+		MPI_Status temp;
+		MPI_Sendrecv_replace(sendrecv_buffer, portion_size/2, MPI_DOUBLE_COMPLEX, myrank^processes_per_part, NO_TAG, myrank, NO_TAG, MPI_COMM_WORLD, &temp);
+	}
+	MPI_Gather(portion,portion_size,MPI_DOUBLE_COMPLEX,state,portion_size,MPI_DOUBLE_COMPLEX,MASTER,MPI_COMM_WORLD);
+	if(i_am_the_master)
+		stop();
+	return SUCCESS;
+}
+
+void median(const size_t number_of_qubits, const size_t qubit_num, const size_t number_of_cycles = 1)
+{
+	complexd *state = NULL;
+	int code = generate_state(&state, number_of_qubits, time(NULL));
+	if(code != SUCCESS)
+		MPI_Abort(MPI_COMM_WORLD, code);
+	size_t i = 0;
+	for(i = 0; i < number_of_cycles; i++)
+	{
+		code = transform(state, number_of_qubits, qubit_num);
+		if(code != SUCCESS)
+			MPI_Abort(MPI_COMM_WORLD, code);
+	}
+	if(i_am_the_master)
+	{
+		float average_time = total_time / number_of_cycles;
+		printf("( %zd, %zd ):\t%f\n",number_of_qubits, qubit_num, average_time);
+		free(state);
+	}
+}
+
+int main(int argc, char **argv)
+{
+
+	MPI_Init (&argc, &argv);
+    MPI_Comm_rank (MPI_COMM_WORLD, &myrank);
+    MPI_Comm_size (MPI_COMM_WORLD, &proc_num);
+
+	i_am_the_master = myrank == MASTER;
+
 	#if DEBUG
-		QuantumState state2(qubits_n);
-		state2 = state;
+	Printer::assert(MPI_DATATYPE_NULL != MPI_DOUBLE_COMPLEX, "MPI Complex Datatype is Null!", 
+					{
+						{"Null", MPI_DATATYPE_NULL}, 
+						{"Not empty", MPI_DOUBLE_COMPLEX}
+					});
 	#endif
-	state.transform(qubit_num);
-	double result = Tools::get_timer();
-	#if DEBUG
-		state.transform(qubit_num);
-		// state.print();
-		// state2.print();
-		state.is_equal(state2);
-	#endif
-	return result;
-}
-
-double median(size_t qubits_n, size_t qubit_num=0)
-{
-	int cnt = 5;
-	double sum = 0;
-	for(int i = 0; i < cnt; i++)
-		sum += launch(qubits_n, qubit_num?qubit_num:params_qubit_transform_num);
-	sum /= cnt;
-	cout << qubits_n << ":"<<(qubit_num?qubit_num:params_qubit_transform_num) << ":" << sum << endl;
-	return sum;
-}
-
-
-int main()
-{
+	
 	// Qubits number are 20,24,25,26
-//	median(20);
+	median(20, 10);
 //	median(24);
 //	median(25);
 //	median(26);
 //  median(26,1);
 //  median(26,11);
 //  median(26,26);
-median(26,2);
+
+	MPI_Finalize();
 }
