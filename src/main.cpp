@@ -1,27 +1,26 @@
 #include <complex>
 #include <cstring>
 #include <math.h>
-#include <cstdlib>
 #include <ctime>
 #include <sys/time.h>
 #include <errno.h>
+#include <cassert>
 #include "mpi.h"
+#include <random>
+using namespace std;
 
 typedef std::complex<double> complexd;
 typedef unsigned long int ulong;
-#define DEBUG 1
+#define DEBUG 0
 #define SUCCESS 0
+#define TRUE 1
+#define FALSE 0
 #define NO_MEMORY -1
 
 #define MASTER 0
-
 #define NO_TAG 0
 
 using namespace std;
-
-#if DEBUG
-#include "assert.h"
-#endif
 
 int myrank, proc_num, i_am_the_master;
 double total_time = 0, tmp_time;
@@ -36,8 +35,9 @@ void stop()
 	total_time += tmp_time;
 }
 
-int generate_state(complexd **_state, const size_t number_of_qubits, const int seed)
+int generate_state(complexd **_state, const size_t number_of_qubits)
 {
+	size_t i;
 	// Vector with a quantum state of our qubits
 	complexd *state = NULL;
 	// Size of the vector, which is 2 to the power of number of qubits
@@ -45,8 +45,11 @@ int generate_state(complexd **_state, const size_t number_of_qubits, const int s
 	// Allocating memory for vector in root process
 	if(i_am_the_master)
 	{
-		state = (complexd *)malloc(size*sizeof(complexd));
-		if(state == NULL)
+		try
+		{
+			state = new complexd [size];
+		}
+		catch (bad_alloc& ba)
 		{
 			fprintf(stderr, "New QuantumState with %ld qubits cannot be created: %s\n", number_of_qubits, strerror(errno));
 			*_state = NULL;
@@ -58,27 +61,44 @@ int generate_state(complexd **_state, const size_t number_of_qubits, const int s
 
 	complexd *portion = NULL;
 	ulong portion_size = size / proc_num;
-
-	portion = (complexd *)malloc(portion_size * sizeof(complexd));
-	if(portion == NULL)
+	try
 	{
-		if(i_am_the_master)
-		{
-			free(state);
-		}
+		portion = new complexd [portion_size];
+	}
+	catch (bad_alloc& ba)
+	{
+		fprintf(stderr, "Not enough memory for a buffer: %s\n", strerror(errno));
 		*_state = NULL;
 		return NO_MEMORY;
 	}
 
 	// const unsigned int ONE_YEAR = 31556926;
 	// One year interval so processes won't produce the same random sequence
-	srand(seed + myrank);
-	size_t i;
+	const int scale = 100;
 	for(i = 0; i < portion_size; i++)
-		portion[i] = complexd(rand() * 100 - 50, rand() * 100 - 50);
-
+		portion[i] = complexd(rand() / (RAND_MAX + 0.0) * scale - scale/2, rand() / (RAND_MAX + 0.0) * scale - scale/2);
+	// MPI_Barrier(MPI_COMM_WORLD);
+	// for(i = 0; i < portion_size; i++)
+	// 	printf("%d:\t( %lf, %lf )\n", myrank*portion_size + i, portion[i].real(), portion[i].imag());
+	MPI_Barrier(MPI_COMM_WORLD);
+	if(i_am_the_master) {
+		complexd zero(0,0);
+		for(i = 0; i < size; i++) {
+			state[i] = zero;
+			printf("%zu:\t( %lf, %lf )\n", i, state[i].real(), state[i].imag());
+		}
+		return SUCCESS;
+	}
+	else
+		for(i = 0; i < portion_size; i++)
+			printf("%d:\t( %lf, %lf )\n", myrank*portion_size + i, portion[i].real(), portion[i].imag());
+		
+	// MPI_Barrier(MPI_COMM_WORLD);
+	
 	MPI_Gather(portion, portion_size, MPI_DOUBLE_COMPLEX, state, portion_size, MPI_DOUBLE_COMPLEX, MASTER, MPI_COMM_WORLD);
+	printf("----------- Success!! -------------------- \n");
 	*_state = state;
+	delete [] portion;
 	return SUCCESS;
 }
 
@@ -88,14 +108,15 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 	complexd *portion = NULL;
 	ulong size = 1 << number_of_qubits;
 	ulong portion_size = size / proc_num;
-
-	portion = (complexd *)malloc(portion_size * sizeof(complexd));
-	if(portion == NULL)
+	try
+	{
+		portion = new complexd [portion_size];
+	}
+	catch (bad_alloc& ba)
+	{
+		fprintf(stderr, "Not enough memory for a buffer: %s\n", strerror(errno));
 		return NO_MEMORY;
-
-	// Start the timer
-	if(i_am_the_master)
-		go();
+	}
 
 	MPI_Scatter(state,portion_size,MPI_DOUBLE_COMPLEX,portion,portion_size,MPI_DOUBLE_COMPLEX,MASTER,MPI_COMM_WORLD);
 
@@ -154,18 +175,20 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 		MPI_Sendrecv_replace(sendrecv_buffer, portion_size/2, MPI_DOUBLE_COMPLEX, myrank^processes_per_part, NO_TAG, myrank, NO_TAG, MPI_COMM_WORLD, &temp);
 	}
 	MPI_Gather(portion,portion_size,MPI_DOUBLE_COMPLEX,state,portion_size,MPI_DOUBLE_COMPLEX,MASTER,MPI_COMM_WORLD);
-	if(i_am_the_master)
-		stop();
+	delete [] portion;
 	return SUCCESS;
 }
 
 void median(const size_t number_of_qubits, const size_t qubit_num, const size_t number_of_cycles = 1)
 {
 	complexd *state = NULL;
-	int code = generate_state(&state, number_of_qubits, time(NULL));
+	int code = generate_state(&state, number_of_qubits);
 	if(code != SUCCESS)
 		MPI_Abort(MPI_COMM_WORLD, code);
 	size_t i = 0;
+	// Start the timer
+	if(i_am_the_master)
+		go();
 	for(i = 0; i < number_of_cycles; i++)
 	{
 		code = transform(state, number_of_qubits, qubit_num);
@@ -174,10 +197,52 @@ void median(const size_t number_of_qubits, const size_t qubit_num, const size_t 
 	}
 	if(i_am_the_master)
 	{
+		stop();
 		float average_time = total_time / number_of_cycles;
 		printf("( %zd, %zd ):\t%f\n",number_of_qubits, qubit_num, average_time);
-		free(state);
+		delete [] state;
 	}
+}
+
+int equal(complexd *state, complexd *state_copy, size_t number_of_qubits)
+{
+	ulong size = 1 << number_of_qubits;
+	ulong i;
+	const double eps = 1e-2;
+	for(i = 0; i < size; i++)
+	{
+		if(abs(std::abs(state[i]) - std::abs(state_copy[i])) > eps)
+			return FALSE;
+	}
+	return TRUE;
+}
+
+int test(const size_t number_of_qubits, const size_t qubit_num)
+{
+	complexd *state = NULL, *state_copy = NULL;
+	int code = generate_state(&state, number_of_qubits);
+	if(code != SUCCESS)
+		MPI_Abort(MPI_COMM_WORLD, code);
+	else if(i_am_the_master)
+		delete [] state;
+	// code = generate_state(&state_copy, number_of_qubits, 72325);
+	// if(code != SUCCESS)
+		// MPI_Abort(MPI_COMM_WORLD, code);
+	// printf("Checking if copy of the state is equal to the original...");
+	// code = equal(state,state_copy,number_of_qubits);
+	// printf("%d\n", code);
+	// assert(code == TRUE);
+	// code = transform(state, number_of_qubits, qubit_num);
+	// if(code != SUCCESS)
+	// 	MPI_Abort(MPI_COMM_WORLD, code);
+	// code = transform(state, number_of_qubits, qubit_num);
+	// if(code != SUCCESS)
+	// 	MPI_Abort(MPI_COMM_WORLD, code);
+	// if(code = equal(state,state_copy,number_of_qubits))
+	// 	printf("States are equal? True\n");
+	// else
+	// 	printf("States are equal? False\n");
+	return code;
 }
 
 int main(int argc, char **argv)
@@ -188,17 +253,45 @@ int main(int argc, char **argv)
     MPI_Comm_size (MPI_COMM_WORLD, &proc_num);
 
 	i_am_the_master = myrank == MASTER;
-
-	#if DEBUG
-	Printer::assert(MPI_DATATYPE_NULL != MPI_DOUBLE_COMPLEX, "MPI Complex Datatype is Null!", 
-					{
-						{"Null", MPI_DATATYPE_NULL}, 
-						{"Not empty", MPI_DOUBLE_COMPLEX}
-					});
-	#endif
 	
+	// int size = 8;
+	// double *state = NULL;
+	// if(i_am_the_master)
+	// 	state = new double[size];
+	// int i = 0;
+	// // Number of processes is 8
+	// assert(size == proc_num);
+	// double buffer = myrank;
+	// MPI_Gather(&buffer, 1, MPI_DOUBLE, state, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	// if(i_am_the_master)
+	// 	for(i = 0; i < size; i++)
+	// 		printf("%d:\t%lf\n", i, state[i]);
+	// if(i_am_the_master)
+	// 	delete [] state;
+
+	int size = 8;
+	complexd *state = NULL;
+	if(i_am_the_master)
+		state = new complexd[size];
+	int i = 0;
+	// Number of processes is 8
+	assert(size == proc_num);
+	complexd buffer = complexd(myrank, 0);
+	MPI_Gather(&buffer, 1, MPI_DOUBLE_COMPLEX, state, 1, MPI_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
+	if(i_am_the_master)
+		for(i = 0; i < size; i++)
+			printf("%d:\t%lf\n", i, state[i].real());
+	if(i_am_the_master)
+		delete [] state;
+
+	// srand(72328 + myrank);
+
+	// assert(MPI_DATATYPE_NULL != MPI_DOUBLE_COMPLEX);
+	
+
+
 	// Qubits number are 20,24,25,26
-	median(20, 10);
+	// test(4, 2);
 //	median(24);
 //	median(25);
 //	median(26);
