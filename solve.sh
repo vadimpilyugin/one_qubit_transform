@@ -8,7 +8,7 @@ mkdir build
 
 echo 'Building project'
 mpic++ -std=c++0x -Wall -g -o build/solve src/main.cpp -lm
-for i in 8
+for i in 1 2 4 8
 do
 	printf "PROC_NUM = $i\n"
 	echo '============================'

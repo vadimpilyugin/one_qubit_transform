@@ -73,8 +73,7 @@ int generate_state(complexd **_state, const size_t number_of_qubits)
 		return NO_MEMORY;
 	}
 
-	// const unsigned int ONE_YEAR = 31556926;
-	// One year interval so processes won't produce the same random sequence
+
 	const int scale = 100;
 	for(i = 0; i < portion_size; i++)
 		portion[i] = complexd(rand() / (RAND_MAX + 0.0) * scale - scale/2, rand() / (RAND_MAX + 0.0) * scale - scale/2);
@@ -104,6 +103,16 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 	ulong processes_per_part = proc_num / parts_num;
 	// Each process has a portion of state vector
 	ulong portion_size = size / proc_num;
+	#if DEBUG
+	if(i_am_the_master) {
+		printf("Общий размер: %lu\n", size);
+		printf("Число процессов: %d\n", proc_num);
+		printf("Размер одной части: %lu\n", portion_size);
+		printf("Число кусков по кубитам: %lu\n", parts_num);
+		printf("Размер по кубитам: %lu\n", size / parts_num);
+		printf("Процессов на одну часть: %lu\n", processes_per_part);
+	}
+	#endif
 	try
 	{
 		portion = new complexd [portion_size];
@@ -116,11 +125,28 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 
 	MPI_Scatter(state,portion_size,MPI_DOUBLE_COMPLEX,portion,portion_size,MPI_DOUBLE_COMPLEX,MASTER,MPI_COMM_WORLD);
 
+	#if DEBUG
+	if(i_am_the_master)
+		printf("Успешно раздали части по процессам\n");
+	#endif
+
 	// Each process has its own part of state vector
 	const double root2 = sqrt(2);
-	if(processes_per_part >= 1 && portion_size > 1)
+	if(processes_per_part >= 1)
 	{
+		#if DEBUG
+		if(i_am_the_master)
+			printf("Метод 1\n");
+		#endif
 		int i_am_white = (myrank & processes_per_part) == processes_per_part;
+		#if DEBUG
+		MPI_Barrier(MPI_COMM_WORLD);
+		if(i_am_white)
+			printf("%d - белый\n", myrank);
+		else
+			printf("%d - синий\n", myrank);
+		MPI_Barrier(MPI_COMM_WORLD);
+		#endif
 		// We need an extra Sendrecv operation
 		complexd *sendrecv_buffer = NULL;
 		// half of the data will be sent
@@ -129,19 +155,54 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 		else
 			sendrecv_buffer = portion + portion_size / 2;
 		MPI_Status temp;
-		MPI_Sendrecv_replace(sendrecv_buffer, portion_size/2, MPI_DOUBLE_COMPLEX, myrank^processes_per_part, NO_TAG, myrank, NO_TAG, MPI_COMM_WORLD, &temp);
+		int dest = myrank^processes_per_part;
+		int source = dest;
+		#if DEBUG
+		MPI_Barrier(MPI_COMM_WORLD);
+		printf("%d -- %d\n", myrank, dest);
+		MPI_Barrier(MPI_COMM_WORLD);
+		#endif
+		MPI_Sendrecv_replace(sendrecv_buffer, portion_size/2, MPI_DOUBLE_COMPLEX, dest, NO_TAG, source, NO_TAG, MPI_COMM_WORLD, &temp);
+		// int MPI_Sendrecv_replace(void *buf, int count, MPI_Datatype datatype, 
+  //                      int dest, int sendtag, int source, int recvtag,
+  //                      MPI_Comm comm, MPI_Status *status)
+		#if DEBUG
+		if(i_am_the_master)
+			printf("Раздали половинки\n");
+		#endif
 		// Transform first half of the vector with the second half
 		for(i = 0; i < portion_size/2; i++) {
-			portion[i] = (portion[i] + portion[i+portion_size/2]) / root2;
-			portion[i+portion_size/2] = (portion[i] - portion[i+portion_size/2]) / root2;
+			ulong index1 = i;
+			ulong index2 = i+portion_size/2;
+			complexd value1 = portion[index1];
+			complexd value2 = portion[index2];
+			portion[index1] = (value1 + value2)/root2;
+			portion[index2] = (value1 - value2)/root2;
 		}
+		#if DEBUG
+		if(i_am_the_master)
+			printf("Преобразовали\n");
+		#endif
 		// We need an extra Sendrecv operation to restore order
-		MPI_Sendrecv_replace(sendrecv_buffer, portion_size/2, MPI_DOUBLE_COMPLEX, myrank^processes_per_part, NO_TAG, myrank, NO_TAG, MPI_COMM_WORLD, &temp);
+		MPI_Sendrecv_replace(sendrecv_buffer, portion_size/2, MPI_DOUBLE_COMPLEX, dest, NO_TAG, source, NO_TAG, MPI_COMM_WORLD, &temp);
+		#if DEBUG
+		if(i_am_the_master)
+			printf("Раздали половинки обратно\n");
+		#endif
 	}
 	else if(processes_per_part == 0)
 	{
 		// Each process has one or more blue-white pairs, so we don't need extra send operations
-		const ulong mask = 1 << (number_of_qubits - qubit_num + 1);
+		const ulong mask = size / parts_num;
+		// const ulong start_pos = portion_size * myrank;
+		#if DEBUG
+		if(i_am_the_master) {
+			printf("Метод 2\n");
+			printf("Маска: %lu\n", mask);
+			printf("Пар на один процесс: %d\n", parts_num / proc_num / 2);
+			assert(0|mask < portion_size);
+		}
+		#endif
 		for(i = 0; i < portion_size; i++)
 			if((i & mask) != mask)
 			{
@@ -149,11 +210,20 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 				ulong index2 = i|mask;
 				complexd value1 = portion[index1];
 				complexd value2 = portion[index2];
-				portion[index1] = (value1 + value2)/root2;;
-				portion[index2] = (value1 - value2)/root2;;
+				portion[index1] = (value1 + value2)/root2;
+				portion[index2] = (value1 - value2)/root2;
 			}
 	}
+	#if DEBUG
+	MPI_Barrier(MPI_COMM_WORLD);
+	if(i_am_the_master)
+		printf("Успешно преобразовали\n");
+	#endif
 	MPI_Gather(portion,portion_size,MPI_DOUBLE_COMPLEX,state,portion_size,MPI_DOUBLE_COMPLEX,MASTER,MPI_COMM_WORLD);
+	#if DEBUG
+	if(i_am_the_master)
+		printf("Собрали преобразованный вектор\n");
+	#endif
 	delete [] portion;
 	return SUCCESS;
 }
@@ -199,7 +269,7 @@ int equal(complexd *state, complexd *state_copy, size_t number_of_qubits)
 int pv(complexd *state, size_t number_of_qubits)
 {
 	ulong size = 1 << number_of_qubits;
-	int i;
+	ulong i;
 	for(i = 0; i < size; i++)
 	{
 		printf("%d:  ( %lf, %lf )\n", i, state[i].real(), state[i].imag());
@@ -210,6 +280,7 @@ int pv(complexd *state, size_t number_of_qubits)
 int test(const size_t number_of_qubits, const size_t qubit_num)
 {
 	complexd *state = NULL, *state_copy = NULL;
+	srand(72328 + myrank);
 	int code = generate_state(&state, number_of_qubits);
 	if(code != SUCCESS)
 		MPI_Abort(MPI_COMM_WORLD, code);
@@ -237,10 +308,11 @@ int test(const size_t number_of_qubits, const size_t qubit_num)
 	if(code != SUCCESS)
 		MPI_Abort(MPI_COMM_WORLD, code);
 	if(i_am_the_master) {
-		if(code = equal(state,state_copy,number_of_qubits))
-			printf("States are equal? True\n");
+		printf("States are equal.......");
+		if((code = equal(state,state_copy,number_of_qubits)))
+			printf("True\n");
 		else
-			printf("States are equal? False\n");
+			printf("False\n");
 	}
 	if(i_am_the_master)
 	{
@@ -259,20 +331,23 @@ int main(int argc, char **argv)
 
 	i_am_the_master = myrank == MASTER;
 
-	srand(72328 + myrank);
+	const unsigned int ONE_YEAR = 31556926;
+	// One year interval so they won't produce the same random sequence
+	srand(time(NULL) + myrank*ONE_YEAR);
 
 	assert(MPI_DATATYPE_NULL != MPI_DOUBLE_COMPLEX);
 	
+	// For debugging
+	// test(20,1);
+	// test(20,20);
+	// test(20,10);
 
-
-	// Qubits number are 20,24,25,26
-	test(24,5);
-//	median(24);
-//	median(25);
-//	median(26);
-//  median(26,1);
-//  median(26,11);
-//  median(26,26);
+	// For Regatta
+	median(24,11,3);
+	median(25,11,3);
+	median(26,11,3);
+	median(26,1,3);
+	median(26,26,3);
 
 	MPI_Finalize();
 }
