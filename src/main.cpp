@@ -11,15 +11,19 @@ using namespace std;
 
 typedef std::complex<double> complexd;
 typedef unsigned long int ulong;
-#define DEBUG 0
+#define DEBUG 1
 #define SUCCESS 0
 #define TRUE 1
 #define FALSE 0
 #define NO_MEMORY -1
 #define WRONG_VALUE -2
+#define INVALID_VALUE -3
 
 #define MASTER 0
 #define NO_TAG 0
+
+const double adamar_matrix[4] = {1.0/sqrt(2), 1.0/sqrt(2), 1.0/sqrt(2), -1.0/sqrt(2)};
+const double *adamar_matrix_p = adamar_matrix;
 
 using namespace std;
 
@@ -83,21 +87,74 @@ int generate_state(complexd **_state, const size_t number_of_qubits)
 	return SUCCESS;
 }
 
-int transform(complexd *state, const size_t number_of_qubits, const size_t qubit_num)
+// Раздать вектор состояний по процессам
+int scatter_state_vector(const complexd *state, complexd **_portion, const size_t number_of_qubits)
+{
+	#if DEBUG
+	if(i_am_the_master)
+		printf("Scattering state vector with number_of_qubits = %zu\n", number_of_qubits);
+	#endif
+	if(number_of_qubits == 0 || (state == NULL && i_am_the_master))
+	{
+		fprintf(stderr, "Wrong parameters!\n");
+		return WRONG_VALUE;
+	}
+	// State vector size
+	ulong size = 1 << number_of_qubits;
+	if(size == 1 || size <= proc_num)
+	{
+		fprintf(stderr, "Size: %lu\nProc num: %d\n", size, proc_num);
+		return WRONG_VALUE;
+	}
+	// Root process sends portions of state vector
+	complexd *portion = NULL;
+	// Each process has a portion of state vector
+	ulong portion_size = size / proc_num;
+	try
+	{
+		portion = new complexd [portion_size];
+	}
+	catch (bad_alloc& ba)
+	{
+		fprintf(stderr, "Not enough memory for a buffer: %s\n", strerror(errno));
+		return NO_MEMORY;
+	}
+
+	MPI_Scatter(state,portion_size,MPI_DOUBLE_COMPLEX,portion,portion_size,MPI_DOUBLE_COMPLEX,MASTER,MPI_COMM_WORLD);
+	#if DEBUG
+	if(i_am_the_master)
+		printf("Успешно раздали части по процессам\n");
+	#endif
+	*_portion = portion;
+	if(*_portion == NULL)
+	{
+		fprintf(stderr, "Portion is NULL!\n");
+		return INVALID_VALUE;
+	}
+	return SUCCESS;
+}
+
+int transform(complexd *portion, const size_t number_of_qubits, const size_t qubit_num, const double *transform_matrix = adamar_matrix_p)
 {
 	#if DEBUG
 	if(i_am_the_master)
 		printf("Transforming state vector with number_of_qubits = %zu and qubit_num = %zu\n", number_of_qubits, qubit_num);
 	#endif
-	if(number_of_qubits == 0 || qubit_num == 0 || qubit_num > number_of_qubits || (state == NULL && i_am_the_master))
+	if(number_of_qubits == 0 || qubit_num == 0 || qubit_num > number_of_qubits || (portion == NULL))
+	{
+		fprintf(stderr, "Wrong value\n");
 		return WRONG_VALUE;
+	}
 	// State vector size
 	ulong size = 1 << number_of_qubits;
 	if(size == 1 || size <= proc_num)
+	{
+		fprintf(stderr, "%s\n", "Vector is too small");
 		return WRONG_VALUE;
+	}
 	ulong i;
 	// Root process sends portions of state vector
-	complexd *portion = NULL;
+	// complexd *portion = NULL;
 	// Qubit number divides state vector into parts
 	ulong parts_num = 1 << qubit_num;
 	ulong processes_per_part = proc_num / parts_num;
@@ -113,23 +170,6 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 		printf("Процессов на одну часть: %lu\n", processes_per_part);
 	}
 	#endif
-	try
-	{
-		portion = new complexd [portion_size];
-	}
-	catch (bad_alloc& ba)
-	{
-		fprintf(stderr, "Not enough memory for a buffer: %s\n", strerror(errno));
-		return NO_MEMORY;
-	}
-
-	MPI_Scatter(state,portion_size,MPI_DOUBLE_COMPLEX,portion,portion_size,MPI_DOUBLE_COMPLEX,MASTER,MPI_COMM_WORLD);
-
-	#if DEBUG
-	if(i_am_the_master)
-		printf("Успешно раздали части по процессам\n");
-	#endif
-
 	// Each process has its own part of state vector
 	const double root2 = sqrt(2);
 	if(processes_per_part >= 1)
@@ -176,8 +216,8 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 			ulong index2 = i+portion_size/2;
 			complexd value1 = portion[index1];
 			complexd value2 = portion[index2];
-			portion[index1] = (value1 + value2)/root2;
-			portion[index2] = (value1 - value2)/root2;
+			portion[index1] = value1*transform_matrix[0] + value2*transform_matrix[2];
+			portion[index2] = value1*transform_matrix[1] + value2*transform_matrix[3];
 		}
 		#if DEBUG
 		if(i_am_the_master)
@@ -210,8 +250,8 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 				ulong index2 = i|mask;
 				complexd value1 = portion[index1];
 				complexd value2 = portion[index2];
-				portion[index1] = (value1 + value2)/root2;
-				portion[index2] = (value1 - value2)/root2;
+				portion[index1] = value1*transform_matrix[0] + value2*transform_matrix[2];
+				portion[index2] = value1*transform_matrix[1] + value2*transform_matrix[3];
 			}
 	}
 	#if DEBUG
@@ -219,6 +259,20 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 	if(i_am_the_master)
 		printf("Успешно преобразовали\n");
 	#endif
+	return SUCCESS;
+}
+
+// Собрать розданный вектор
+int gather_state_vector(complexd *state, complexd *portion, const size_t number_of_qubits)
+{
+	if(number_of_qubits == 0 || (state == NULL && i_am_the_master))
+		return WRONG_VALUE;
+	// State vector size
+	ulong size = 1 << number_of_qubits;
+	if(size == 1 || size <= proc_num)
+		return WRONG_VALUE;
+	// Each process has a portion of state vector
+	ulong portion_size = size / proc_num;
 	MPI_Gather(portion,portion_size,MPI_DOUBLE_COMPLEX,state,portion_size,MPI_DOUBLE_COMPLEX,MASTER,MPI_COMM_WORLD);
 	#if DEBUG
 	if(i_am_the_master)
@@ -228,27 +282,117 @@ int transform(complexd *state, const size_t number_of_qubits, const size_t qubit
 	return SUCCESS;
 }
 
-void median(const size_t number_of_qubits, const size_t qubit_num, const size_t number_of_cycles = 1)
+double normal()
 {
-	complexd *state = NULL;
+	const int iterations = 12;
+	double sum = 0.;
+	for (int i = 0; i<iterations; ++i)  { 
+		sum += (double)rand()/RAND_MAX; 
+	}
+	return sum-6.;
+}
+
+double dot_product(const double *vector_1, const double *vector_2)
+{
+	return vector_1[0] * vector_2[0] + vector_1[1] * vector_2[1];
+}
+
+void matrix_mult(const double *matrix_1, const double *matrix_2, double **result)
+{
+	// Первая матрица по строкам
+	double a0[2];
+	a0[0] = matrix_1[0];
+	a0[1] = matrix_1[1];
+	double a1[2];
+	a1[0] = matrix_1[2];
+	a1[1] = matrix_1[3];
+
+	// Вторая по столбцам
+	double b0[2];
+	b0[0] = matrix_2[0];
+	b0[1] = matrix_2[2];
+	double b1[2];
+	b1[0] = matrix_2[1];
+	b1[1] = matrix_2[3];
+
+	(*result)[0] = dot_product(a0, b0);
+	(*result)[1] = dot_product(a0, b1);
+	(*result)[2] = dot_product(a1, b0);
+	(*result)[3] = dot_product(a1, b1);
+}
+
+int n_adamar(complexd *portion, const size_t number_of_qubits, const double err = 0.0)
+{
+	// transformation matrix without noise
+	const double *m = adamar_matrix_p;
+	// noise: 	[ cos(theta), 	sin(theta) ],
+	//			[ -sin(theta), 	cos(theta) ]
+	double noise[4];
+	if(i_am_the_master)
+	{
+		// generate noise matrix and send it
+		double theta = normal() * err;
+		noise[0] = cos(theta);
+		noise[1] = sin(theta);
+		noise[2] = -sin(theta);
+		noise[3] = cos(theta);
+	}
+	MPI_Bcast(noise, 4, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+	// resulting matrix
+	double transform_matrix[4], *pointer_to_matrix = transform_matrix;
+	#if DEBUG
+	if(i_am_the_master)
+		printf("n-преобразование Адамара с err=%lf\n", err);
+	#endif
+	matrix_mult(m, noise, &pointer_to_matrix);
+	#if DEBUG
+	if(i_am_the_master) {
+		MPI_Barrier(MPI_COMM_WORLD);
+		printf("Матрица преобразования была сформирована\n");
+	}
+	#endif
+	size_t i;
+	int code;
+	for(i = 1; i <= number_of_qubits; i++) {
+		// transform(portion, number_of_qubits, i, transform_matrix);
+		// code = transform(portion, number_of_qubits, 1);
+		if((code = transform(portion, number_of_qubits, i, transform_matrix)) != SUCCESS) {
+			fprintf(stderr, "Error happened during n_adamar transformation\n");
+			return code;
+		}
+		MPI_Barrier(MPI_COMM_WORLD);
+	}
+	return SUCCESS;
+}
+
+void median(const size_t number_of_qubits, const double err = 0.0, const size_t number_of_cycles = 1)
+{
+	complexd *state = NULL, *portion = NULL;
 	int code = generate_state(&state, number_of_qubits);
 	if(code != SUCCESS)
 		MPI_Abort(MPI_COMM_WORLD, code);
-	size_t i = 0;
 	// Start the timer
 	if(i_am_the_master)
 		go();
+	code = scatter_state_vector(state, &portion, number_of_qubits);
+	size_t i = 0;
+	if(code != SUCCESS)
+		MPI_Abort(MPI_COMM_WORLD, code);
 	for(i = 0; i < number_of_cycles; i++)
 	{
-		code = transform(state, number_of_qubits, qubit_num);
+		code = n_adamar(portion, number_of_qubits, err);
+		// code = transform(portion, number_of_qubits, 1);
 		if(code != SUCCESS)
 			MPI_Abort(MPI_COMM_WORLD, code);
 	}
+	code = gather_state_vector(state, portion, number_of_qubits);
+	if(code != SUCCESS)
+		MPI_Abort(MPI_COMM_WORLD, code);
 	if(i_am_the_master)
 	{
 		stop();
 		float average_time = total_time / number_of_cycles;
-		printf("( %zd, %zd ):\t%f\n",number_of_qubits, qubit_num, average_time);
+		printf("( %zd, %lf ):\t%f\n",number_of_qubits, err, average_time);
 		delete [] state;
 	}
 }
@@ -272,14 +416,14 @@ int pv(complexd *state, size_t number_of_qubits)
 	ulong i;
 	for(i = 0; i < size; i++)
 	{
-		printf("%d:  ( %lf, %lf )\n", i, state[i].real(), state[i].imag());
+		printf("%zu:  ( %lf, %lf )\n", i, state[i].real(), state[i].imag());
 	}
 	return SUCCESS;
 }
 
 int test(const size_t number_of_qubits, const size_t qubit_num)
 {
-	complexd *state = NULL, *state_copy = NULL;
+	complexd *state = NULL, *state_copy = NULL, *portion = NULL;
 	srand(72328 + myrank);
 	int code = generate_state(&state, number_of_qubits);
 	if(code != SUCCESS)
@@ -301,10 +445,20 @@ int test(const size_t number_of_qubits, const size_t qubit_num)
 		printf("%s\n", code ? "True" : "False");
 		assert(code == TRUE);
 	}
-	code = transform(state, number_of_qubits, qubit_num);
+	code = scatter_state_vector(state, &portion, number_of_qubits);
+	MPI_Barrier(MPI_COMM_WORLD);
 	if(code != SUCCESS)
 		MPI_Abort(MPI_COMM_WORLD, code);
-	code = transform(state, number_of_qubits, qubit_num);
+	code = transform(portion, number_of_qubits, qubit_num);
+	MPI_Barrier(MPI_COMM_WORLD);
+	if(code != SUCCESS)
+		MPI_Abort(MPI_COMM_WORLD, code);
+	if(code != SUCCESS)
+		MPI_Abort(MPI_COMM_WORLD, code);
+	code = transform(portion, number_of_qubits, qubit_num);
+	if(code != SUCCESS)
+		MPI_Abort(MPI_COMM_WORLD, code);
+	code = gather_state_vector(state, portion, number_of_qubits);
 	if(code != SUCCESS)
 		MPI_Abort(MPI_COMM_WORLD, code);
 	if(i_am_the_master) {
@@ -338,16 +492,16 @@ int main(int argc, char **argv)
 	assert(MPI_DATATYPE_NULL != MPI_DOUBLE_COMPLEX);
 	
 	// For debugging
-	// test(20,1);
+	median(10,.01,3);
 	// test(20,20);
 	// test(20,10);
 
 	// For Regatta
-	median(24,11,3);
-	median(25,11,3);
-	median(26,11,3);
-	median(26,1,3);
-	median(26,26,3);
+	// median(24,11,.01,3);
+	// median(25,11,.01,3);
+	// median(26,11,.01,3);
+	// median(26,1,.01,3);
+	// median(26,26,.01,3);
 
 	MPI_Finalize();
 }
