@@ -22,8 +22,8 @@ typedef unsigned long int ulong;
 #define MASTER 0
 #define NO_TAG 0
 
-const double adamar_matrix[4] = {1.0/sqrt(2), 1.0/sqrt(2), 1.0/sqrt(2), -1.0/sqrt(2)};
-const double *adamar_matrix_p = adamar_matrix;
+#define ADAMAR_MSIZE 2
+double **adamar_matrix; // = {{1.0/sqrt(2), 1.0/sqrt(2)}, {1.0/sqrt(2), -1.0/sqrt(2)}};
 
 using namespace std;
 
@@ -86,6 +86,30 @@ int generate_state(complexd **_state, const size_t number_of_qubits)
 	delete [] portion;
 	return SUCCESS;
 }
+int generate_state(complexd *state, complexd *portion, const size_t number_of_qubits)
+{
+	ulong i;
+	// Size of the vector, which is 2 to the power of number of qubits
+	ulong size = 1 << number_of_qubits;
+	// Parallel random vector generation
+	// Each process generates its own portion of a vector and then sends it to root process
+	ulong portion_size = size / proc_num;
+	double norm = 0;
+	for(i = 0; i < portion_size; i++) {
+		portion[i] = complexd(rand() / (RAND_MAX + 0.0) - .5, rand() / (RAND_MAX + 0.0) - .5;
+		norm += std::abs(portion[i] * portion[i]);
+	}
+	double sum_norm = 0;
+	MPI_Reduce(&norm, &sum_norm, 1, MPI_DOUBLE, MPI_SUM, MASTER, MPI_COMM_WORLD);
+	MPI_Bcast(&sum_norm, 1, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+	for(i = 0; i < portion_size; i++) {
+		portion[i] /= sum_norm;
+	}
+	MPI_Gather(portion, portion_size, MPI_DOUBLE_COMPLEX, state, portion_size, MPI_DOUBLE_COMPLEX, MASTER, MPI_COMM_WORLD);
+	*_state = state;
+	delete [] portion;
+	return SUCCESS;
+}
 
 // Раздать вектор состояний по процессам
 int scatter_state_vector(const complexd *state, complexd **_portion, const size_t number_of_qubits)
@@ -134,7 +158,7 @@ int scatter_state_vector(const complexd *state, complexd **_portion, const size_
 	return SUCCESS;
 }
 
-int transform(complexd *portion, const size_t number_of_qubits, const size_t qubit_num, const double *transform_matrix = adamar_matrix_p)
+int transform(complexd *portion, const size_t number_of_qubits, const size_t qubit_num, double **transform_matrix = adamar_matrix)
 {
 	#if DEBUG
 	if(i_am_the_master)
@@ -171,7 +195,6 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 	}
 	#endif
 	// Each process has its own part of state vector
-	const double root2 = sqrt(2);
 	if(processes_per_part >= 1)
 	{
 		#if DEBUG
@@ -180,12 +203,12 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 		#endif
 		int i_am_white = (myrank & processes_per_part) == processes_per_part;
 		#if DEBUG
-		MPI_Barrier(MPI_COMM_WORLD);
+		// MPI_Barrier(MPI_COMM_WORLD);
 		if(i_am_white)
 			printf("%d - белый\n", myrank);
 		else
 			printf("%d - синий\n", myrank);
-		MPI_Barrier(MPI_COMM_WORLD);
+		// MPI_Barrier(MPI_COMM_WORLD);
 		#endif
 		// We need an extra Sendrecv operation
 		complexd *sendrecv_buffer = NULL;
@@ -198,9 +221,9 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 		int dest = myrank^processes_per_part;
 		int source = dest;
 		#if DEBUG
-		MPI_Barrier(MPI_COMM_WORLD);
+		// MPI_Barrier(MPI_COMM_WORLD);
 		printf("%d -- %d\n", myrank, dest);
-		MPI_Barrier(MPI_COMM_WORLD);
+		// MPI_Barrier(MPI_COMM_WORLD);
 		#endif
 		MPI_Sendrecv_replace(sendrecv_buffer, portion_size/2, MPI_DOUBLE_COMPLEX, dest, NO_TAG, source, NO_TAG, MPI_COMM_WORLD, &temp);
 		// int MPI_Sendrecv_replace(void *buf, int count, MPI_Datatype datatype, 
@@ -216,8 +239,8 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 			ulong index2 = i+portion_size/2;
 			complexd value1 = portion[index1];
 			complexd value2 = portion[index2];
-			portion[index1] = value1*transform_matrix[0] + value2*transform_matrix[2];
-			portion[index2] = value1*transform_matrix[1] + value2*transform_matrix[3];
+			portion[index1] = value1*transform_matrix[0][0] + value2*transform_matrix[1][0];
+			portion[index2] = value1*transform_matrix[0][1] + value2*transform_matrix[1][1];
 		}
 		#if DEBUG
 		if(i_am_the_master)
@@ -250,12 +273,12 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 				ulong index2 = i|mask;
 				complexd value1 = portion[index1];
 				complexd value2 = portion[index2];
-				portion[index1] = value1*transform_matrix[0] + value2*transform_matrix[2];
-				portion[index2] = value1*transform_matrix[1] + value2*transform_matrix[3];
+				portion[index1] = value1*transform_matrix[0][0] + value2*transform_matrix[1][0];
+				portion[index2] = value1*transform_matrix[0][1] + value2*transform_matrix[1][1];
 			}
 	}
 	#if DEBUG
-	MPI_Barrier(MPI_COMM_WORLD);
+	// MPI_Barrier(MPI_COMM_WORLD);
 	if(i_am_the_master)
 		printf("Успешно преобразовали\n");
 	#endif
@@ -292,76 +315,82 @@ double normal()
 	return sum-6.;
 }
 
-double dot_product(const double *vector_1, const double *vector_2)
+// Перемножение квадратных матриц
+double **matrix_mult(double **matrix_1, double **matrix_2, const size_t size)
 {
-	return vector_1[0] * vector_2[0] + vector_1[1] * vector_2[1];
-}
-
-void matrix_mult(const double *matrix_1, const double *matrix_2, double **result)
-{
-	// Первая матрица по строкам
-	double a0[2];
-	a0[0] = matrix_1[0];
-	a0[1] = matrix_1[1];
-	double a1[2];
-	a1[0] = matrix_1[2];
-	a1[1] = matrix_1[3];
-
-	// Вторая по столбцам
-	double b0[2];
-	b0[0] = matrix_2[0];
-	b0[1] = matrix_2[2];
-	double b1[2];
-	b1[0] = matrix_2[1];
-	b1[1] = matrix_2[3];
-
-	(*result)[0] = dot_product(a0, b0);
-	(*result)[1] = dot_product(a0, b1);
-	(*result)[2] = dot_product(a1, b0);
-	(*result)[3] = dot_product(a1, b1);
+	double **result = new double* [size];
+	size_t i,j,k;
+	for(i = 0; i < size; i++)
+		result[i] = new double [size];
+	for(i = 0; i < size; i++)
+		for(j = 0; j < size; j++)
+		{
+			double sum = 0;
+			for(k = 0; k < size; k++)
+				sum += matrix_1[i][k] * matrix_2[k][j];
+			result[i][j] = sum;
+		}
+	return result;
 }
 
 int n_adamar(complexd *portion, const size_t number_of_qubits, const double err = 0.0)
 {
-	// transformation matrix without noise
-	const double *m = adamar_matrix_p;
+	size_t i,j;
 	// noise: 	[ cos(theta), 	sin(theta) ],
 	//			[ -sin(theta), 	cos(theta) ]
-	double noise[4];
+	double **noise = new double* [ADAMAR_MSIZE];
+	for(i = 0; i < ADAMAR_MSIZE; i++)
+		noise[i] = new double [ADAMAR_MSIZE];
+	// for messaging
+	double noise_vector[4];
 	if(i_am_the_master)
 	{
 		// generate noise matrix and send it
 		double theta = normal() * err;
-		noise[0] = cos(theta);
-		noise[1] = sin(theta);
-		noise[2] = -sin(theta);
-		noise[3] = cos(theta);
+		noise_vector[0] = cos(theta);
+		noise_vector[1] = sin(theta);
+		noise_vector[2] = -sin(theta);
+		noise_vector[3] = cos(theta);
 	}
-	MPI_Bcast(noise, 4, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
-	// resulting matrix
-	double transform_matrix[4], *pointer_to_matrix = transform_matrix;
+	MPI_Bcast(noise_vector, 4, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+	for(i = 0; i < ADAMAR_MSIZE; i++)
+		for(j = 0; j < ADAMAR_MSIZE; j++)
+			noise[i][j] = noise_vector[i*ADAMAR_MSIZE+j];
+	// resulting matrix = H * U(theta)
+	double **transform_matrix = matrix_mult(adamar_matrix, noise, ADAMAR_MSIZE);
 	#if DEBUG
 	if(i_am_the_master)
 		printf("n-преобразование Адамара с err=%lf\n", err);
 	#endif
-	matrix_mult(m, noise, &pointer_to_matrix);
 	#if DEBUG
 	if(i_am_the_master) {
-		MPI_Barrier(MPI_COMM_WORLD);
+		// MPI_Barrier(MPI_COMM_WORLD);
 		printf("Матрица преобразования была сформирована\n");
 	}
 	#endif
-	size_t i;
 	int code;
 	for(i = 1; i <= number_of_qubits; i++) {
-		// transform(portion, number_of_qubits, i, transform_matrix);
-		// code = transform(portion, number_of_qubits, 1);
-		if((code = transform(portion, number_of_qubits, i, transform_matrix)) != SUCCESS) {
+		code = transform(portion, number_of_qubits, i, transform_matrix);
+		if(code != SUCCESS)
+		{
 			fprintf(stderr, "Error happened during n_adamar transformation\n");
 			return code;
 		}
-		MPI_Barrier(MPI_COMM_WORLD);
 	}
+	// free noise matrix
+	for(i = 0; i < ADAMAR_MSIZE; i++)
+		delete [] noise[i];
+	delete [] noise;
+	// free transformation matrix
+	for(i = 0; i < ADAMAR_MSIZE; i++)
+		delete [] transform_matrix[i];
+	delete [] transform_matrix;
+	#if DEBUG
+	if(i_am_the_master) {
+		// MPI_Barrier(MPI_COMM_WORLD);
+		printf("Освободили ресурсы, выходим из преобразования Адамара\n");
+	}
+	#endif
 	return SUCCESS;
 }
 
@@ -382,6 +411,7 @@ void median(const size_t number_of_qubits, const double err = 0.0, const size_t 
 	{
 		code = n_adamar(portion, number_of_qubits, err);
 		// code = transform(portion, number_of_qubits, 1);
+		// printf("Parameters: \n\t Portion == NULL ? %d\n\t number_of_qubits = %u \n\t qubit_num = %u \n", portion == NULL, number_of_qubits, i);
 		if(code != SUCCESS)
 			MPI_Abort(MPI_COMM_WORLD, code);
 	}
@@ -446,7 +476,6 @@ int test(const size_t number_of_qubits, const size_t qubit_num)
 		assert(code == TRUE);
 	}
 	code = scatter_state_vector(state, &portion, number_of_qubits);
-	MPI_Barrier(MPI_COMM_WORLD);
 	if(code != SUCCESS)
 		MPI_Abort(MPI_COMM_WORLD, code);
 	code = transform(portion, number_of_qubits, qubit_num);
@@ -476,6 +505,14 @@ int test(const size_t number_of_qubits, const size_t qubit_num)
 	return SUCCESS;
 }
 
+
+
+// 24,25,26,27,28
+void experiment(size_t number_of_qubits, double err = 0.01, size_t number_of_cycles = 60)
+{
+
+}
+
 int main(int argc, char **argv)
 {
 
@@ -485,9 +522,25 @@ int main(int argc, char **argv)
 
 	i_am_the_master = myrank == MASTER;
 
-	const unsigned int ONE_YEAR = 31556926;
-	// One year interval so they won't produce the same random sequence
-	srand(time(NULL) + myrank*ONE_YEAR);
+	// Initialize Adamar matrix
+	adamar_matrix = new double* [ADAMAR_MSIZE];
+	for(size_t i = 0; i < ADAMAR_MSIZE; i++)
+		adamar_matrix[i] = new double [ADAMAR_MSIZE];
+	adamar_matrix[0][0] = 1.0/sqrt(2);
+	adamar_matrix[0][1] = 1.0/sqrt(2);
+	adamar_matrix[1][0] = 1.0/sqrt(2);
+	adamar_matrix[1][1] = -1.0/sqrt(2);
+
+	int seed = 0;
+	if(i_am_the_master)
+	{
+		seed = time(NULL);
+		if(seed == -1)
+			MPI_Abort(MPI_COMM_WORLD, -1);
+	}
+	MPI_Bcast(&seed, 1, MPI_INT, MASTER, MPI_COMM_WORLD);
+	seed += myrank;
+	srand(seed);
 
 	assert(MPI_DATATYPE_NULL != MPI_DOUBLE_COMPLEX);
 	
@@ -503,5 +556,8 @@ int main(int argc, char **argv)
 	// median(26,1,.01,3);
 	// median(26,26,.01,3);
 
+	for(size_t i = 0; i < ADAMAR_MSIZE; i++)
+		delete [] adamar_matrix[i];
+	delete [] adamar_matrix;
 	MPI_Finalize();
 }
