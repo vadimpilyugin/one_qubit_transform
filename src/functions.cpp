@@ -196,6 +196,7 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 			printf("Раздали половинки\n");
 		#endif
 		// Transform first half of the vector with the second half
+		#pragma omp parallel for
 		for(i = 0; i < portion_size/2; i++) {
 			ulong index1 = i;
 			ulong index2 = i+portion_size/2;
@@ -228,6 +229,7 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 			assert((0|mask) < portion_size);
 		}
 		#endif
+		#pragma omp parallel for
 		for(i = 0; i < portion_size; i++)
 			if((i & mask) != mask)
 			{

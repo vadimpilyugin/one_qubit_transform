@@ -5,12 +5,18 @@ double total_time = 0, tmp_time;
 
 void go()
 {
-	tmp_time = MPI_Wtime();
+	if(i_am_the_master)
+		tmp_time = MPI_Wtime();
 }
 void stop()
 {
-	tmp_time = MPI_Wtime() - tmp_time;
-	total_time += tmp_time;
+	if(i_am_the_master)
+	{
+		tmp_time = MPI_Wtime() - tmp_time;
+		total_time += tmp_time;
+	}
+	else
+		total_time = 0.0;
 }
 
 void section_start(const char *str)
@@ -25,7 +31,6 @@ void section_end(const char *str)
 		printf("------------- END %s --------------\n", str);
 }
 
-#if TEST
 int test_transform(const size_t number_of_qubits = 10, const size_t qubit_num = 5)
 {
 	section_start("TEST TRANSFORM");
@@ -95,18 +100,20 @@ int test_adamar(const size_t number_of_qubits = 10, const double err = 0.01)
 	return SUCCESS;
 }
 
-#endif
-
-void series_of_experiments(size_t number_of_qubits = 10, double err = 0.01, size_t number_of_cycles = 60)
+int series_of_experiments(size_t number_of_qubits = 10, double err = 0.01, size_t number_of_cycles = 60)
 {
 	section_start("EXPERIMENT");
 	if(i_am_the_master)
-		printf("Experiment parameters: \n\tNumber of qubits: %zu\n\tNumber of cycles: %zu\n\tError: %lf\n\n\n", number_of_qubits, number_of_cycles, err);
+		printf("Experiment parameters: \n\tNumber of qubits: %zu\n\tError: %lf\n\n\n", number_of_qubits, err);
 
 	int code;
 	complexd *portion = NULL, *portion_copy = NULL;
-	mymalloc(&portion, number_of_qubits);
-	mymalloc(&portion_copy, number_of_qubits);
+	code = mymalloc(&portion, number_of_qubits);
+	if(code != SUCCESS)
+		return code;
+	code = mymalloc(&portion_copy, number_of_qubits);
+	if(code != SUCCESS)
+		return code;
 	size_t i;
 
 	for(i = 0; i < number_of_cycles; i++)
@@ -123,9 +130,35 @@ void series_of_experiments(size_t number_of_qubits = 10, double err = 0.01, size
 	myfree(portion);
 	myfree(portion_copy);
 	section_end("EXPERIMENT");
+	return SUCCESS;
 }
 
-int main(int argc, char **argv)
+double timeit(const size_t number_of_qubits)
+{
+	int code;
+	complexd *portion = NULL;
+	code = mymalloc(&portion, number_of_qubits);
+	if(code != SUCCESS)
+	{
+		fprintf(stderr, "mymalloc returned %d\n", code);
+		myfree(portion);
+		return 0.0;
+	}
+	generate_state(portion, number_of_qubits);
+	go();
+	code = n_adamar(portion, number_of_qubits, 0.0);
+	stop();
+	if(code != SUCCESS)
+	{
+		fprintf(stderr, "n_adamar returned error %d\n", code);
+		myfree(portion);
+		return 0.0;
+	}
+	myfree(portion);
+	return total_time;
+}
+
+int main(int argc, char *argv[])
 {
 
 	MPI_Init (&argc, &argv);
@@ -147,14 +180,50 @@ int main(int argc, char **argv)
 
 	assert(MPI_DATATYPE_NULL != MPI_DOUBLE_COMPLEX);
 
-	#if TEST
-	assert(test_transform() == SUCCESS);
-	assert(test_adamar() == SUCCESS);
-	#endif
-
-	// 24,25,26,27,28
-	series_of_experiments(10, 0.01, 100);
-
+	// Для 27 кубитов на [1,2,4] узлах на [1,2,4] ядрах получить время работы
+	// argv == 1
+	if(argv[1][0] == '1')
+	{
+		const size_t number_of_qubits = 27;
+		double time_elapsed = timeit(number_of_qubits);
+		printf("( %zu, %d ): %lf\n", number_of_qubits, proc_num, time_elapsed);
+	}
+	// Для ошибки в 0.01 для [23,24,25,26,27] кубитов для 60 экспериментов получить потерю точности
+	// argv == 2
+	else if(argv[1][0] == '2')
+	{
+		const double err = 0.01;
+		size_t number_of_qubits_from = 23;
+		size_t number_of_qubits_to = 27;
+		for(size_t i = number_of_qubits_from; i <= number_of_qubits_to; i++)
+		{
+			series_of_experiments(i, err);
+		}
+	}
+	// Для 26 кубитов и для ошибки в [.1,.01,.001] для 60 экспериментов получить потерю точности
+	// argv == 3
+	else if(argv[1][0] == '3')
+	{
+		const size_t number_of_qubits = 25;
+		double err = .1;
+		double err_divisor = 10;
+		size_t count = 3;
+		for(size_t i = 0; i < count; i++)
+		{
+			series_of_experiments(number_of_qubits, err);
+			err /= err_divisor;
+		}
+	}
+	// Для тестирования работы программы
+	else if(argv[1][0] == 't')
+	{
+		assert(test_transform(20,10) == SUCCESS);
+		assert(test_adamar(20, 0.01) == SUCCESS);
+	}
+	else
+	{
+		fprintf(stderr, "%s\n", "Нет такой опции");
+	}
 	functions_clean();
 	MPI_Finalize();
 }

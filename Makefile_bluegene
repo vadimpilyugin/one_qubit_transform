@@ -1,0 +1,8 @@
+build/solve: build/main.o build/functions.o
+	bgxlc_r -qsmp=omp  -Wall -o build/solve build/main.o build/functions.o -lm
+
+build/main.o: src/main.cpp
+	bgxlc_r -qsmp=omp  -Wall -I include -c -o build/main.o src/main.cpp
+build/functions.o: src/functions.cpp
+	bgxlc_r -qsmp=omp  -Wall -I include -c -o build/functions.o src/functions.cpp
+
