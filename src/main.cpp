@@ -219,6 +219,7 @@ int main(int argc, char *argv[])
 	{
 		assert(test_transform(20,10) == SUCCESS);
 		assert(test_adamar(20, 0.01) == SUCCESS);
+		series_of_experiments(10, 0.01);
 	}
 	else
 	{

@@ -251,12 +251,12 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 
 double normal()
 {
-	const int iterations = 12;
+	const int iterations = 20;
 	double sum = 0.;
 	for (int i = 0; i<iterations; ++i)  { 
 		sum += (double)rand()/RAND_MAX; 
 	}
-	return sum-6.;
+	return sum-iterations/2;
 }
 
 // Перемножение квадратных матриц
@@ -290,7 +290,10 @@ int n_adamar(complexd *portion, const size_t number_of_qubits, const double err)
 	if(i_am_the_master)
 	{
 		// generate noise matrix and send it
-		double theta = normal() * err;
+		double rand_std = normal();
+		if(err > 1e-5)
+			printf("%lf: ", rand_std);
+		double theta = rand_std * err;
 		noise_vector[0] = cos(theta);
 		noise_vector[1] = sin(theta);
 		noise_vector[2] = -sin(theta);

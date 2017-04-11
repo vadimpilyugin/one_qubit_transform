@@ -2,3 +2,4 @@ include/params.h
 build/
 regatta.sh
 regatta.sh~
+.ipynb_checkpoints

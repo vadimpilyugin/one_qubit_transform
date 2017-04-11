@@ -4,7 +4,7 @@ rm -rf build
 clear
 clear
 mkdir build
-rm -f solve_1*
+rm -f solve_1_*
 
 echo 'Building project'
 make --makefile=Makefile_bluegene build/solve
