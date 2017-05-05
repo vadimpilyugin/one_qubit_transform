@@ -1,0 +1,2 @@
+Компиляция: make
+Запуск: mpiexec -n 4 build/solve
