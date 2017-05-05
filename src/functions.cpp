@@ -1,6 +1,7 @@
 #include "functions.h"
 
-double **adamar_matrix;
+double **adamar_matrix = NULL;
+double **U = NULL;
 const double eps = 1e-2;
 
 void functions_init(const int _myrank, const int _proc_num, const int _i_am_the_master)
@@ -17,6 +18,30 @@ void functions_init(const int _myrank, const int _proc_num, const int _i_am_the_
 	adamar_matrix[0][1] = 1.0/sqrt(2);
 	adamar_matrix[1][0] = 1.0/sqrt(2);
 	adamar_matrix[1][1] = -1.0/sqrt(2);
+	// Initialize CNOT matrix
+	U = new double* [CNOT_MSIZE];
+	for(size_t i = 0; i < CNOT_MSIZE; i++)
+		U[i] = new double [CNOT_MSIZE];
+	// first row
+	U[0][0] = 1;
+	U[0][1] = 0;
+	U[0][2] = 0;
+	U[0][3] = 0;
+	// second row
+	U[1][0] = 0;
+	U[1][1] =  1;
+	U[1][2] =  0;
+	U[1][3] =  0;
+	//third row
+	U[2][0] = 0;
+	U[2][1] =  0;
+	U[2][2] =  0;
+	U[2][3] =  1;
+	// fourth row
+	U[3][0] = 0;
+	U[3][1] =  0;
+	U[3][2] =  1;
+	U[3][3] =  0;
 }
 
 void functions_clean()
@@ -24,8 +49,28 @@ void functions_clean()
 	for(size_t i = 0; i < ADAMAR_MSIZE; i++)
 		delete [] adamar_matrix[i];
 	delete [] adamar_matrix;
+	for(size_t i = 0; i < CNOT_MSIZE; i++)
+		delete [] U[i];
+	delete [] U;
 }
 
+int mymalloc_f(complexd **_portion, const size_t number_of_qubits)
+{
+	ulong portion_size = (1 << number_of_qubits);
+	complexd *portion = NULL;
+	try
+	{
+		portion = new complexd [portion_size];
+	}
+	catch (std::bad_alloc& ba)
+	{
+		fprintf(stderr, "Not enough memory for a buffer: %s\n", strerror(errno));
+		*_portion = NULL;
+		return NO_MEMORY;
+	}
+	*_portion = portion;
+	return SUCCESS;
+}
 
 int mymalloc(complexd **_portion, const size_t number_of_qubits)
 {
@@ -46,6 +91,10 @@ int mymalloc(complexd **_portion, const size_t number_of_qubits)
 }
 
 void myfree(complexd *portion)
+{
+	delete [] portion;
+}
+void myfree_f(complexd *portion)
 {
 	delete [] portion;
 }
@@ -94,6 +143,18 @@ double norm(const complexd *portion, const size_t number_of_qubits)
 	return sqrt(all_sum);
 }
 
+// Returns the norm of the vector. Each process has a whole vector
+double norm_f(const complexd *portion, const size_t number_of_qubits)
+{
+	ulong portion_size = (1 << number_of_qubits);
+	ulong i;
+	double sum_of_squares = 0;
+	#pragma omp parallel for
+	for(i = 0; i < portion_size; i++)
+		sum_of_squares += std::abs(portion[i] * portion[i]);
+	return sqrt(sum_of_squares);
+}
+
 double fidelity(const complexd *portion1, const complexd *portion2, const size_t number_of_qubits)
 {
 	complexd dot_product = dot(portion1, portion2, number_of_qubits);
@@ -120,6 +181,75 @@ int generate_state(complexd *portion, const size_t number_of_qubits)
 	return SUCCESS;
 }
 
+int generate_state_f(complexd *portion, const size_t number_of_qubits)
+{
+	ulong portion_size = (1 << number_of_qubits);
+	ulong i;
+	for(i = 0; i < portion_size; i++) {
+		portion[i] = complexd(rand() / (RAND_MAX + 0.0) - .5, rand() / (RAND_MAX + 0.0) - .5);
+	}
+	double sum_norm = norm(portion, number_of_qubits);
+	for(i = 0; i < portion_size; i++) {
+		portion[i] /= sum_norm;
+	}
+	return SUCCESS;
+}
+
+int two_qubit_transform_f(complexd *portion, complexd *out, const size_t number_of_qubits, const size_t first_qubit, const size_t second_qubit)
+{
+	#if DEBUG
+	if(i_am_the_master)
+		printf("Transforming vector with number_of_qubits = %zu by %zu and %zu qubits\n", number_of_qubits, first_qubit, second_qubit);
+	#endif
+	if( number_of_qubits == 0 || first_qubit == 0 || second_qubit == 0 || 
+	    first_qubit > number_of_qubits || second_qubit > number_of_qubits)
+	{
+		fprintf(stderr, "%s\n", "Wrong value");
+		return WRONG_VALUE;
+	}
+	// Vector size
+	ulong size = 1 << number_of_qubits;
+	if(size <= proc_num)
+	{
+		fprintf(stderr, "%s\n", "Vector is too small");
+		return WRONG_VALUE;
+	}
+	ulong i;
+	ulong chunk_size = size/proc_num;
+	ulong start_pos = chunk_size*myrank;
+	//first_qubit, second_qubit - номера кубитов, над которыми производится преобразование
+	int shift1=number_of_qubits-first_qubit;
+	int shift2=number_of_qubits-second_qubit;
+	//Все биты нулевые, за исключением соответсвующего номеру первого изменяемого кубита
+	ulong test_q1 = 1<<shift1;
+	//Все биты нулевые, за исключением соответсвующего номеру второго изменяемого кубита
+	ulong test_q2 = 1<<shift2;
+	#pragma omp parallel for
+	for(i = start_pos; i < start_pos+chunk_size; i++)
+	{
+		//Установка изменяемых битов во все возможные позиции
+		ulong i00 = i & ~test_q1 & ~test_q2;
+		ulong i01 = i & ~test_q1 | test_q2;
+		ulong i10 = (i | test_q1) & ~test_q2;
+		ulong i11 = i | test_q1 | test_q2;
+		//Получение значений изменяемых битов
+		int iq1 = (i & test_q1) >> shift1;
+		int iq2 = (i & test_q2) >> shift2;
+		//Номер столбца в матрице
+		int iq=(iq1<<1)+iq2;
+		out[i] = U[0][iq] * portion[i00] + U[1][iq] * portion[i01] + U[2][iq] * portion[i10] + U[3][iq] * portion[i11];
+	}
+	// После преобразования, процессы обмениваются чанками
+	int code = MPI_SUCCESS;
+	// code = MPI_Allgather(out+chunk_size*myrank, chunk_size, MPI_DOUBLE_COMPLEX, out, chunk_size, MPI_COMM_WORLD);
+	if(code != MPI_SUCCESS)
+	{
+		fprintf(stderr, "%s\n", "Failed to gather data by all-to-all operation");
+		return code;
+	}
+	return SUCCESS;
+}
+
 int transform(complexd *portion, const size_t number_of_qubits, const size_t qubit_num, double **transform_matrix)
 {
 	#if DEBUG
@@ -139,8 +269,6 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 		return WRONG_VALUE;
 	}
 	ulong i;
-	// Root process sends portions of state vector
-	// complexd *portion = NULL;
 	// Qubit number divides state vector into parts
 	ulong parts_num = 1 << qubit_num;
 	ulong processes_per_part = proc_num / parts_num;

@@ -31,10 +31,15 @@ extern int myrank, proc_num, i_am_the_master;
 extern double **adamar_matrix; // = {{1.0/sqrt(2), 1.0/sqrt(2)}, {1.0/sqrt(2), -1.0/sqrt(2)}};
 
 #define ADAMAR_MSIZE 2
+#define CNOT_MSIZE 4
 
 int mymalloc(complexd **_portion, const size_t number_of_qubits);
+int mymalloc_f(complexd **_portion, const size_t number_of_qubits);
 void myfree(complexd *portion);
+void myfree_f(complexd *portion);
 int generate_state(complexd *portion, const size_t number_of_qubits);
+int generate_state_f(complexd *portion, const size_t number_of_qubits);
+int two_qubit_transform_f(complexd *portion, complexd *out, const size_t number_of_qubits, const size_t first_qubit, const size_t second_qubit);
 int transform(complexd *portion, const size_t number_of_qubits, const size_t qubit_num, double **transform_matrix);
 bool states_equal(const complexd *portion1, const complexd *portion2, const size_t number_of_qubits);
 complexd dot(const complexd *portion1, const complexd *portion2, const size_t number_of_qubits);

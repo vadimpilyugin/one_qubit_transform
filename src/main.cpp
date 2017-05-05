@@ -13,7 +13,7 @@ void stop()
 	if(i_am_the_master)
 	{
 		tmp_time = MPI_Wtime() - tmp_time;
-		total_time += tmp_time;
+		total_time = tmp_time;
 	}
 	else
 		total_time = 0.0;
@@ -158,6 +158,41 @@ double timeit(const size_t number_of_qubits)
 	return total_time;
 }
 
+double two_qubit_conversion(size_t first_qubit, size_t second_qubit, size_t number_of_qubits)
+{
+	int code;
+	complexd *portion = NULL;
+	complexd *out = NULL;
+	code = mymalloc_f(&portion, number_of_qubits);
+	if(code != SUCCESS)
+	{
+		fprintf(stderr, "mymalloc returned %d\n", code);
+		myfree_f(portion);
+		return 0.0;
+	}
+	code = mymalloc_f(&out, number_of_qubits);
+	if(code != SUCCESS)
+	{
+		fprintf(stderr, "mymalloc returned %d\n", code);
+		myfree_f(out);
+		return 0.0;
+	}
+	generate_state_f(portion, number_of_qubits);
+	go();
+	code = two_qubit_transform_f(portion, out, number_of_qubits, first_qubit, second_qubit);
+	stop();
+	if(code != SUCCESS)
+	{
+		fprintf(stderr, "two_qubit_transform_f returned error %d\n", code);
+		myfree_f(portion);
+		myfree_f(out);
+		return 0.0;
+	}
+	myfree_f(portion);
+	myfree_f(out);
+	return total_time;
+}
+
 int main(int argc, char *argv[])
 {
 
@@ -175,56 +210,22 @@ int main(int argc, char *argv[])
 			MPI_Abort(MPI_COMM_WORLD, -1);
 	}
 	MPI_Bcast(&seed, 1, MPI_INT, MASTER, MPI_COMM_WORLD);
-	seed += myrank;
+	// we need to generate the same vector on all nodes
+	// seed += myrank;
 	srand(seed);
 
 	assert(MPI_DATATYPE_NULL != MPI_DOUBLE_COMPLEX);
 
-	// Для 27 кубитов на [1,2,4] узлах на [1,2,4] ядрах получить время работы
-	// argv == 1
-	if(argv[1][0] == '1')
+	size_t number_of_qubits = 24;
+	size_t first_qubit = 10;
+	size_t second_qubit = 22;
+	double t = two_qubit_conversion(first_qubit, second_qubit, number_of_qubits);
+	if(i_am_the_master)
 	{
-		const size_t number_of_qubits = 27;
-		double time_elapsed = timeit(number_of_qubits);
-		printf("( %zu, %d ): %lf\n", number_of_qubits, proc_num, time_elapsed);
+		printf("( n , q1 , q2 ): time\n");
+		printf("( %zu, %zu, %zu ): %lf\n", number_of_qubits, first_qubit, second_qubit, t);
 	}
-	// Для ошибки в 0.01 для [23,24,25,26,27] кубитов для 60 экспериментов получить потерю точности
-	// argv == 2
-	else if(argv[1][0] == '2')
-	{
-		const double err = 0.01;
-		size_t number_of_qubits_from = 23;
-		size_t number_of_qubits_to = 27;
-		for(size_t i = number_of_qubits_from; i <= number_of_qubits_to; i++)
-		{
-			series_of_experiments(i, err);
-		}
-	}
-	// Для 26 кубитов и для ошибки в [.1,.01,.001] для 60 экспериментов получить потерю точности
-	// argv == 3
-	else if(argv[1][0] == '3')
-	{
-		const size_t number_of_qubits = 25;
-		double err = .1;
-		double err_divisor = 10;
-		size_t count = 3;
-		for(size_t i = 0; i < count; i++)
-		{
-			series_of_experiments(number_of_qubits, err);
-			err /= err_divisor;
-		}
-	}
-	// Для тестирования работы программы
-	else if(argv[1][0] == 't')
-	{
-		assert(test_transform(20,10) == SUCCESS);
-		assert(test_adamar(20, 0.01) == SUCCESS);
-		series_of_experiments(10, 0.01);
-	}
-	else
-	{
-		fprintf(stderr, "%s\n", "Нет такой опции");
-	}
+	
 	functions_clean();
 	MPI_Finalize();
 }
