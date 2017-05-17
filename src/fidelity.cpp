@@ -38,7 +38,7 @@ int main(int argc, char **argv)
 		// сравниваем на равенство, выводим процент
 		double fid = fidelity(portion_1, portion_2, number_of_qubits);
 		if(i_am_the_master) 
-			std::cout << "Fidelity: " << int(ceil(fid*100)) << '%' << std::endl;
+			std::cout << "Fidelity: " << int(floor(fid*100)) << '%' << std::endl;
 		// очищаем память
 		myfree(portion_1);
 		myfree(portion_2);

@@ -1,7 +1,12 @@
+# Число кубит в тесте
+NUMBER_OF_QUBITS=15
+NUMBER_OF_PROCESSES=16
+
+
 # Объектные файлы
 build/main.o: src/main.cpp
 	mpic++ -std=c++11 -Wall -fopenmp -I include -c -o build/main.o src/main.cpp
-build/functions.o: src/functions.cpp
+build/functions.o: src/functions.cpp include/functions.h
 	mpic++ -std=c++11 -Wall -I include -fopenmp -c -o build/functions.o src/functions.cpp
 build/read_and_output.o: src/read_and_output.cpp
 	mpic++ -std=c++11 -Wall -I include -c -fopenmp -o build/read_and_output.o src/read_and_output.cpp
@@ -20,6 +25,7 @@ build/fidelity: build/fidelity.o build/functions.o
 	mpic++ -std=c++11 -fopenmp -o build/fidelity build/fidelity.o build/functions.o
 .PHONY: clean
 clean: 
+	rm -rf files/
 	rm -f build/main.o
 	rm -f build/functions.o
 	rm -f build/read_and_output.o
@@ -31,12 +37,15 @@ clean:
 	rm -f build/fidelity
 
 .PHONY: test
-test: all
+test: clean all
 	mkdir -p files
-	mpiexec -n 4 build/generate files/input 15
-	mpiexec -n 4 build/view files/input 15
-	mpiexec -n 4 build/solve files/input files/output 15
-	mpiexec -n 4 build/fidelity files/output files/output_by_transposition 15
+	# Генерируем входной файл
+	mpiexec -n $(NUMBER_OF_PROCESSES) build/generate files/input $(NUMBER_OF_QUBITS)
+	# mpiexec -n $(NUMBER_OF_PROCESSES) build/view files/input $(NUMBER_OF_QUBITS)
+	# Преобразуем двумя способами
+	mpiexec -n $(NUMBER_OF_PROCESSES) build/solve files/input files/output $(NUMBER_OF_QUBITS)
+	# Выводим точность
+	mpiexec -n $(NUMBER_OF_PROCESSES) build/fidelity files/output files/output_by_transposition $(NUMBER_OF_QUBITS)
 
 .PHONY: all
 all:  build/view build/solve build/generate build/view build/fidelity

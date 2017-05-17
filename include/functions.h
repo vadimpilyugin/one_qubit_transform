@@ -8,7 +8,7 @@
 typedef std::complex<double> complexd;
 typedef unsigned long int ulong;
 
-#define DEBUG 1
+#define DEBUG 0
 #define SUCCESS 0
 #define NOT_SUCCESS -1
 #define TRUE 1
