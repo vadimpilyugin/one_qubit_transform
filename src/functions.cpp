@@ -126,6 +126,22 @@ void myfree_f(complexd *portion)
 void pcd(size_t i, complexd x) {
 	std::cout << "["<<i<<"]"<<": "<<x<<std::endl<<std::flush;
 }
+double total_time = 0, start_time = 0;
+void go()
+{
+	if(i_am_the_master)
+		start_time = MPI_Wtime();
+}
+void pause()
+{
+	if(i_am_the_master) {
+		total_time += MPI_Wtime() - start_time;
+	}
+}
+double total()
+{
+	return total_time;
+}
 
 // освободить память на рутовом процессе можно через myfree_f или вызвав scatter_vector
 int gather_vector(complexd **all_portions, const complexd *portion, const size_t number_of_qubits) {
@@ -377,7 +393,9 @@ int qft_transform(complexd *portion, const size_t number_of_qubits, size_t n)
 	if(n == 1)
 	{
 		// в этом случае qft просто адамар по первому кубиту
+		go();
 		code = transform(portion, number_of_qubits, 1, adamar_matrix);
+		pause();
 		if(code != SUCCESS)
 			return code;
 	}
@@ -492,10 +510,6 @@ int transform(complexd *portion, const size_t number_of_qubits, const size_t qub
 		if(i_am_the_master)
 			Printer::debug("Метод 1");
 		int i_am_white = (myrank & processes_per_part) == processes_per_part;
-		// if(i_am_white)
-		// 	Printer::debug("Я белый", std::string("Proc ") + std::to_string(myrank));
-		// else
-		// 	Printer::debug("Я синий", std::string("Proc ") + std::to_string(myrank));
 		// We need an extra Sendrecv operation
 		complexd *sendrecv_buffer = NULL;
 		// half of the data will be sent

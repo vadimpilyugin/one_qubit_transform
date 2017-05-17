@@ -1,6 +1,6 @@
 # Число кубит в тесте
-NUMBER_OF_QUBITS=15
-NUMBER_OF_PROCESSES=16
+NUMBER_OF_QUBITS=10
+NUMBER_OF_PROCESSES=4
 
 
 # Объектные файлы

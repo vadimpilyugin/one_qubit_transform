@@ -5,23 +5,6 @@
 #include <stdlib.h>
 
 int myrank, proc_num, i_am_the_master;
-double total_time = 0, tmp_time;
-
-void go()
-{
-	if(i_am_the_master)
-		tmp_time = MPI_Wtime();
-}
-void stop()
-{
-	if(i_am_the_master)
-	{
-		tmp_time = MPI_Wtime() - tmp_time;
-		total_time = tmp_time;
-	}
-	else
-		total_time = 0.0;
-}
 
 // Преобразовываем вектор двумя способами: перестановкой и рекурсивным
 int test_qft(const char *input_file, const char *_output_file, const size_t number_of_qubits)
