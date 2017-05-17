@@ -408,19 +408,18 @@ int qft_transform(complexd *portion, const size_t number_of_qubits, size_t n)
 	return SUCCESS;
 }
 
-size_t rev_bits(size_t v)
+size_t rev_bits(size_t v, const size_t number_of_qubits)
 {
 	const size_t bits_in_byte = 8;
 	size_t r = v & 1; // r will be reversed bits of v; first get LSB of v
-	int s = sizeof(v) * bits_in_byte - 1; // extra shift needed at end
+	int s = number_of_qubits - 1; // extra shift needed at end
 
-	for (v >>= 1; v; v >>= 1)
+	for (v >>= 1; s > 0; v >>= 1)
 	{   
 	  r <<= 1;
 	  r |= v & 1;
 	  s--;
 	}
-	r <<= s; // shift when v's highest bits are zero
 	return r;
 }
 
@@ -436,11 +435,14 @@ int qft_transform_by_transposition(complexd *portion, const size_t number_of_qub
 	if(i_am_the_master)
 		mymalloc_f(&buffer, number_of_qubits);
 	size_t i;
+	size_t size = (1 << number_of_qubits);
 	// переместить каждый элемент на новую позицию
 	if(i_am_the_master)
-		for(i = 0; i < (1 << number_of_qubits); i++)
-			buffer[rev_bits(i)] = all_portions[i];
-	// раздаем новый вектор
+		for(i = 0; i < size; i++) {
+			Printer::debug(std::to_string(i)+" -> "+std::to_string(rev_bits(i, number_of_qubits)));
+			buffer[rev_bits(i, number_of_qubits)] = all_portions[i];
+		}
+	// раздаем новый вектор, освобождая его
 	scatter_vector(buffer, portion, number_of_qubits);
 	// старый больше не нужен
 	if(i_am_the_master)
